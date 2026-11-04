@@ -87,14 +87,65 @@ The toolkit already ships these adapters; no external dependency is needed:
 - `toolkit/skills/builtin/calm-browsing.md` skill — `motion-reducer` +
   `dark-mode` + `focus-mode` for sensory calm.
 
+### 6. Reference patterns from sibling hackathon projects (non-open-source, hub-provisioned)
+
+Two projects in the same workspace (`MCP-maps-3d`, `Remix-City-Immersive-Tour`)
+are not open-source integrations, but their architecture is directly transferable
+and the hackathon hub provisions their dependencies (Gemini key with a budget).
+
+- **Google Maps Platform Web Components — Maps 3D + Places UI Kit**
+  (`Remix-City-Immersive-Tour`) — `<gmp-map-3d>` photoreal 3D mesh tiles and
+  `<gmp-advanced-place-details-compact>` place cards. A higher-fidelity
+  alternative to hand-built A-Frame scenes for *exteriors* (the hospital
+  approach, the matatu stage forecourt). `flyCameraTo` gives smooth, eased
+  step-to-step transitions that suit the "control the pace" requirement.
+  Caveats: 3D photoreal mesh coverage in Nairobi is limited — verify before
+  relying on it; `ROADMAP`/`SATELLITE` are the safe fallback. Maps Platform
+  needs its own API key (the Demo Key is prototyping-only); confirm a key is
+  provisioned alongside the Gemini key, or fall back to Leaflet/OSM.
+- **MCP tool-driven rehearsal** (`MCP-maps-3d`) — the sibling exposes
+  `view_location_google_maps` and `directions_on_google_maps` as MCP tools a
+  Gemini agent calls. The same pattern lets the co-designer drive the
+  rehearsal in their own words (Sheng/Swahili/English): expose
+  `go_to_step`, `describe_surroundings`, `exit_rehearsal` as MCP tools, and the
+  agent becomes the controller the person steers with text or voice — aligning
+  with "without the system guessing what they meant" and the toolkit's
+  consent-gated profile. The `@modelcontextprotocol/sdk` + `zod` tool-schema
+  pattern is the template.
+- **Server-side Gemini proxy** (both siblings) — an Express app keeps
+  `GEMINI_API_KEY` server-side and streams responses as ndjson on
+  `/api/chat-stream`. The toolkit's own `server/` already has a server-side
+  LLM lane (`GEMINI_API_KEY` enables `extract`/`reflect`/`interpretNeedsPrompt`
+  so clients never see the key) — prefer that lane over building a new proxy.
+  Use the siblings' ndjson streaming pattern only if a custom narration
+  endpoint is needed.
+- **React 19 + Vite + Tailwind + `motion` stack** (`Remix-City`) — the
+  `motion` library (framer-motion) gives the calm, eased transitions the
+  statement asks for, in contrast to fast `flyCameraTo`. The toolkit's
+  pure-DOM, reversible adapters compose cleanly on top of a Vite/React app.
+- **`Landmark` data model + per-step camera calibration**
+  (`Remix-City` `landmarksData.ts`, `calculateCameraParameters`) — a ready
+  template for a `RehearsalStep`:
+  `{ id, name, placeId, lat, lng, camRange, camTilt, camHeading, category,
+  description, highlights, svgIcon }`. The per-place-type camera framing
+  (hospital reception: close, low tilt; matatu stage: wider, higher) lets
+  each step feel right without hand-tuning every camera.
+- **Budgeted API-key UX** — `.env` for the build-time key plus an in-app
+  modal that pastes the team's short-lived hub key into `localStorage`, with a
+  "Reset to demo key" escape. Matches the hub's "short-lived API token with a
+  live spend meter" without hardcoding it.
+
 ## How it fits together (suggested integration)
 
 The toolkit's adapters are pure-DOM and reversible (see
 `tools/adapters/_primitives.js`), so the cleanest path is:
 
 1. **Build the rehearsal as a normal web page.** Twine export HTML for a
-   step-by-step branch, or an A-Frame scene for a 3D walk-through, or a Leaflet
-   panel that steps along a Digital Matatus route.
+   step-by-step branch, an A-Frame scene for a 3D walk-through, a Leaflet
+   panel that steps along a Digital Matatus route, or — for exteriors only —
+   a `<gmp-map-3d>` scene with `flyCameraTo` between `RehearsalStep`s.
+   Optionally expose those steps as MCP tools so the co-designer drives the
+   journey in their own words.
 2. **Compose a new skill**, e.g. `toolkit/skills/builtin/rehearse-journey.md`,
    modeled on `calm-browsing.md`, that wires:
    - `motion-reducer` + `dark-mode` + `focus-mode` — calm (sensory)

@@ -1,6 +1,7 @@
 # Rehearse the Journey — Sprint Implementation Plan
 
 **Plan date:** Thursday, November 5, 2026  
+**Architecture decision:** Client-side React + TypeScript + esbuild; independent Vercel functions; shared local Node backend<br>
 **Demo date:** Saturday, November 7, 2026  
 **Status:** Ready for implementation; sprint tasks are not yet complete  
 **Delivery model:** One developer, sequential execution  
@@ -53,13 +54,57 @@ Learn mode, camera input, NotebookLM, accounts, journey history, profile inferen
 | Adapter catalog manifest | `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/tools/package.json` |
 | Toolkit consumption guide | `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/docs/using-in-your-project.md` |
 
-Use Next.js App Router, TypeScript, React, npm, and a pinned compatible Node 22 patch release. The inspected shell currently runs Node 24.3.0; aligning the implementation shell, CI, and deployment is a Sprint 0 task, not an assumption already satisfied.
+Use a static HTML entry, client-side React + TypeScript, plain CSS, esbuild, npm, and a pinned compatible Node 22 patch release. Do not introduce Next.js, App Router, React Server Components, server rendering, a client router, or an additional backend framework for this MVP. The inspected shell runs Node 24.3.0; aligning the implementation shell, CI, and deployment is a Sprint 0 task, not an assumption already satisfied.
 
 The repository does not currently declare npm workspaces. Preserve the existing root install and test behavior. Give the app an explicit lockfile and CI job rather than converting the repository into a monorepo as incidental work.
 
 Consume the toolkit and catalog through their package exports. First prove local file dependencies can be installed and built on Vercel with access to the repository root. If that fails, use reproducibly packed local tarballs following the toolkit consumption guide. Do not duplicate the core or import browser-incompatible Node ports.
 
 Treat AI SDK 7.0.x and `@ai-sdk/react` 4.0.x as the proposed compatibility target, not a verified dependency set. Verify published versions, peer dependencies, Google provider support, accessibility-package compatibility, and licenses, then lock the exact tested versions. Do not substitute versions silently.
+
+### 2.1 Lighter React architecture
+
+Keep React for the selected `useChat`, approval-response, and generative-accessibility integrations. Removing Next.js is not a decision to replace those with a custom chat protocol or a framework-free UI. The independent controller, not React or chat, owns protected state.
+
+| Layer | Planned responsibility |
+|---|---|
+| Static HTML + React shell | Mount once; display all seven stages as controller state; keep Pause and Exit available without route changes |
+| Controller and approval coordinator | Framework-independent TypeScript; validated commands, revisions, cancellation, and once-only approved effects |
+| Toolkit integration and adaptation manager | Browser-local profile, explicit mappings, reversible adapter lifecycles, and React-safe prose ownership |
+| Media coordinator | Exclusive app audio, microphone lifetime, and immediate shutdown |
+| Shared schemas | Browser/server contracts with no server-only imports or credentials |
+| Shared backend services | Chat, token issuance, Explore/Routes, and simplification logic; no browser-state persistence |
+| Vercel entrypoints | Thin independent functions adapting requests, streaming responses, and cancellation to shared backend services |
+| Local Node host | Serve the built client and the same four API services on one origin; not a proxy to the deployed app |
+| Build and tests | esbuild for bundling; separate TypeScript checks; existing Node assertions, jsdom, and Playwright patterns |
+
+The repository already uses esbuild, TypeScript, jsdom, and Playwright. Declare the app's own required tooling/dependencies explicitly; do not rely on accidental resolution from the root installation. React, AI SDK, and provider packages remain planned app dependencies, to be installed and verified in S0.
+
+### 2.2 Planned app layout and runtime contracts
+
+All entries below are proposed beneath the planned app root, not files already implemented:
+
+- Static entry: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/index.html`.
+- Browser modules: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/src/client` for React components, toolkit integration, adaptations, and media ownership.
+- Independent controller: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/src/controller`.
+- Shared contracts: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/src/shared`.
+- Backend services: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/src/server`.
+- Thin Vercel functions: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/api`, with chat, live-token, explore, and simplify entrypoints.
+- Build tooling and local host: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/scripts`.
+- Tests: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/test`.
+- Static build output: `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/dist`, containing only public client assets and bundled fixtures, never backend output or secrets.
+
+Define app scripts during implementation: `dev` for watched client builds plus the local API host; `typecheck` for browser/server TypeScript checks; `build` for production assets; `start` for serving the built app and local APIs; `test` for deterministic unit/contract suites; and `test:e2e` for Playwright. These commands are planned acceptance requirements, not commands claimed to exist today. esbuild bundling does not replace type checking.
+
+Keep browser and server entry graphs separate. No backend imports or server environment values may enter a client bundle. Keep server functions and shared service imports outside the public static output, and configure Vercel's app root, build/output settings, function inclusion, and repository-root dependency access explicitly.
+
+Use relative same-origin API URLs in the browser. The local host must run the same service implementations and AI SDK stream protocol as Vercel; transport-specific wrappers may differ, but prompts, schemas, tools, validation, timeouts, and errors must not be duplicated. Test both paths, including client disconnects and upstream aborts. Static Python hosting alone is not the local production backup.
+
+### 2.3 Redbird patterns adopted and excluded
+
+Use the reviewed Redbird checkout as a reference for static frontend/function separation, an isolated toolkit bridge, reversible adapter lifecycles, authored fallbacks, and one announcement channel. Do not copy its whole workshop loader, planted accessibility issues, runtime CDN module loading, reload-to-undo behavior, token persistence, remote observation learning, prompt-content cache, or wildcard-CORS policy.
+
+Bundle selected toolkit/catalog modules locally. Hosted toolkit console/MCP connectivity is deferred; adopting Redbird's structural pattern does not authorize accounts, tokens, observations, or profile sharing. React DOM ownership boundaries remain required despite removing Next.js.
 
 ## 3. Non-negotiable architecture contracts
 
@@ -144,6 +189,7 @@ The browser rehearsal controller is the sole authority for journey position, ses
 - Use same-origin checks, protected deployment access, bounded spend, and concrete request/token-issuance limits. A process-local counter is not a deployment-wide rate limiter.
 - Select available platform protection or a shared limiter during Sprint 0. If that needs external state, document the explicit infrastructure exception to the no-app-database decision.
 - Deploy a minimal build early. Document the app root, repository-root package access, environment variables, HTTPS requirements, and local production commands.
+- Serve the static React build with independent Vercel functions. The local Node host serves the same built client and shared backend services; neither runtime requires Next.js or an external deployed proxy. Verify stream headers, cancellation, and error behavior on both runtimes.
 - Fixture mode must not call AI, token, routing, map-tile, or simplification services. Use bundled text/static location context and a visible fixture label.
 
 ### 3.7 Maps and Live contracts
@@ -171,7 +217,7 @@ These are short sequential delivery sprints, not parallel assignments. Each has 
 
 | Sprint | Target window | Budget | Depends on | Gate |
 |---|---|---:|---|---|
-| S0 — Risk retirement | Thu Nov 5, first | 2 h | None | Compatibility, deployment, capability, and capacity decisions recorded |
+| S0 — Risk retirement | Thu Nov 5, first | 2 h | None | Lighter React/function/local-host foundation and capability decisions recorded |
 | S1 — Offline vertical slice | Thu Nov 5, next | 3 h | S0 app foundation | Seven stages usable with the five-step fictional fixture |
 | S2 — Approvals and retention | Fri Nov 6, first | 3 h | S1; S0 approval spike | Exactly-once approved effects; safe denial and storage |
 | S3 — Toolkit and typed AI | Fri Nov 6, next | 4 h | S2 | Reversible adaptations and independent typed role-play |
@@ -183,21 +229,22 @@ These are short sequential delivery sprints, not parallel assignments. Each has 
 ### S0 — Retire integration and deployment risks
 
 - [ ] Confirm working hours, actual presentation slot, credential availability, and remaining test capacity.
-- [ ] Pin a compatible Node 22 patch and prove the selected package set installs and builds; record exact versions and licenses.
-- [ ] Scaffold the smallest app and deploy HTTPS with local toolkit/catalog package resolution. Record clean-checkout install and production commands.
-- [ ] Prove one deterministic and one model-originated approval through the actual SDK. Test approve and deny; prove deterministic completion does not invoke a model.
+- [ ] Pin a compatible Node 22 patch and prove the selected React, AI SDK, accessibility, provider, esbuild, and TypeScript set installs and builds; record exact versions and licenses.
+- [ ] Within the first 90 minutes, prove a static React/esbuild app, local toolkit import, independent HTTPS function with a streamed response, approve/deny continuation, and the equivalent local Node service. Do not build custom routing or a new chat protocol to pass this spike.
+- [ ] Configure an app lockfile, separate client/server build boundaries, static output, four thin Vercel API entrypoints, and shared backend services. Record clean-checkout install, build, typecheck, and local production commands.
+- [ ] Prove one deterministic and one model-originated approval through the actual SDK on local and deployed transports. Test approve and deny; prove deterministic completion does not invoke a model. If the local fixture approval transport differs, verify the same SDK message/approval semantics without a hosted API dependency.
 - [ ] Smoke-test text generation, Live credential/session setup, Maps grounding, and Routes separately with provisioned credentials if available. Never store secret values in evidence.
 - [ ] If credentials are not yet available, assign a verification deadline no later than the start of the relevant integration sprint and mark capability unverified.
 - [ ] Choose the compliant 2D map design, grounding-language policy, external-data notice, deployment access protection, and request-limit mechanism.
 - [ ] Start a baseline of relevant repository tests so pre-existing failures can be distinguished from regressions.
 
-**Gate:** Local/HTTPS foundation works; approval behavior is demonstrated; external capabilities are either verified or explicitly blocked/unverified with a revisit deadline. Unverified capability is not a pass on the full MVP.
+**Gate:** The lighter React build, independent Vercel function, local Node backend, toolkit import, and streamed approvals work with no Next.js dependency. Verify local/deployed stream parity and browser/server separation. External capabilities are either verified or explicitly blocked/unverified with a revisit deadline. Unverified capability is not a pass on the full MVP. If the 90-minute foundation spike fails, stop infrastructure expansion, record the blocker, and explicitly revisit the architecture decision; do not silently change stacks or mark the gate passed.
 
 ### S1 — Complete the offline journey
 
 - [ ] Add shared schemas, five authored steps, source/provenance metadata, and labelled example distress values.
 - [ ] Build intent confirmation and an explicit offer of the fictional journey for unsupported requests.
-- [ ] Build preferences, reviewed steps, textual Explore, scripted typed practice, pause/exit, completion, and checklist preview.
+- [ ] Build preferences, reviewed steps, textual Explore, scripted typed practice, pause/exit, completion, and checklist preview in one mounted React shell; stages are controller state, not routes or page reloads.
 - [ ] Add the controller lifecycle, stable direct controls, keyboard focus rules, up-to-three-step ladder, and in-memory session boundaries.
 - [ ] Wire fixture proposal/approval behavior through the validated local path; do not temporarily permit ungated state mutation.
 - [ ] Bundle all fixture assets and verify zero external network dependence during the fixture flow.
@@ -216,9 +263,9 @@ These are short sequential delivery sprints, not parallel assignments. Each has 
 
 ### S3 — Integrate toolkit adaptations and typed AI
 
-- [ ] Implement and document explicit preference mappings, AbilityModel reads, and reversal/cleanup behavior.
+- [ ] Implement a separate browser-local toolkit bridge and adaptation manager; document explicit preference mappings, AbilityModel reads, and reversal/cleanup behavior. Do not introduce Redbird's hosted-token/observation workflow.
 - [ ] Resolve missing surface mappings and Confirm Actions exclusions with focused tests before enabling those integrations.
-- [ ] Wire Gemini narration and independent typed role-play using bounded prompts/history and fictional-process instructions.
+- [ ] Wire Gemini narration and independent typed role-play through React `useChat` and shared backend services using bounded prompts/history and fictional-process instructions. Retain the selected AI SDK/generative-accessibility integration rather than implementing a custom stream client.
 - [ ] Wire simplification with original-text restoration, race protection, plain-text DOM ownership, and a fixture-mode replacement path that makes no AI calls.
 - [ ] Add paced announcements and app audio coordination. Verify enabling/disabling preferences never defeats Pause.
 - [ ] Demonstrate at least four real adapter effects without introducing unwanted autoplay or removing mandatory approvals.
@@ -252,7 +299,7 @@ These are short sequential delivery sprints, not parallel assignments. Each has 
 - [ ] Test 200% zoom, focus restoration, approval announcements, language labels, map text alternatives, preference removal, and immediate media shutdown.
 - [ ] Run approval, retention, cancellation, grounding, and failure matrices. Record every deviation, not just successful paths.
 - [ ] Measure first narration token ≤2 seconds, complete narration ≤8 seconds, and location answer ≤3 seconds; report observations separately for live and fixture modes, cold/warm runs, and sample sizes.
-- [ ] Run app type checks, production build, automated browser flow, existing root tests, and toolkit skill validation. Keep app CI coverage explicit because root tests do not discover the new app automatically.
+- [ ] Run separate app type checks, production build, automated browser flow, existing root tests, and toolkit skill validation. Check the public build for accidental server code/secrets and verify local/deployed service contract parity, stream cancellation, and fixture independence. Keep app CI coverage explicit because root tests do not discover the new app automatically.
 - [ ] Target Lighthouse Accessibility ≥95, but do not substitute the score for keyboard or screen-reader evidence.
 - [ ] Rehearse on the actual presentation laptop. If a co-designer participates, obtain permission and report their experience separately without replacing the fictional-fixture disclosure.
 
@@ -333,7 +380,7 @@ Keep a concise evidence record per sprint with actual date/time, environment, bu
 | Toolkit adaptations | Not tested | Four observable effects, explicit mapping, reversal tests |
 | Approval controller | Not tested | Twenty-case suite plus race tests |
 | Retention and checklist | Not tested | Reload, exact preview, replacement failure, deletion/reset evidence |
-| HTTPS and local production | Not tested | Clean install/build/start and demo-machine smoke test |
+| HTTPS and local production | Not tested | Clean install/typecheck/build/start; independent Vercel functions and local shared-service stream parity; no server secrets in static output |
 
 Use **Verified**, **Degraded**, **Blocked**, or **Not tested** in the final status table. “Verified” requires the stated gate on the tested build; a fixture or typed fallback cannot verify the corresponding Live or Maps integration.
 
@@ -344,6 +391,7 @@ Final demo must show the fictional disclosure, intent confirmation, preferences,
 | Risk | Mitigation | Reporting rule |
 |---|---|---|
 | Required package/API combination does not work | S0 compatibility and approval spike; lock tested versions | Record actual combination and gap; no silent downgrade |
+| Lighter stack turns into custom infrastructure work | 90-minute foundation spike; one React shell, esbuild, thin functions, shared Node services | Record blockers and explicitly revisit the decision; do not build a framework or silently revert to Next.js |
 | Credentials arrive late or lack service capability | Separate service smoke tests and a revisit deadline | Mark capability unverified/blocked, not complete |
 | Full scope exceeds one developer's hours | Sequential gates, diagnostic timeboxes, contingency, no 3D allocation | Preserve safety tests; disclose incomplete integrations |
 | Google content mixed into incompatible map display | One 2D design; verify current provider policies before integration | Do not ship unverified mixed-provider rendering |
@@ -354,6 +402,6 @@ Final demo must show the fictional disclosure, intent confirmation, preferences,
 
 ## 8. Reference verification backlog
 
-Sprint 0 must consult official primary documentation for the exact versions and account configuration in use: AI SDK approval/stream protocol; Google provider support; generative accessibility compatibility and licenses; Gemini Maps grounding languages/model availability; Google Routes display/attribution policies; Gemini Live ephemeral credentials/audio/session lifecycle; Maps key restrictions; Gemini data-use terms; and Vercel deployment protection/rate limits.
+Sprint 0 must consult official primary documentation for the exact versions and account configuration in use: React client mounting; esbuild React/TypeScript bundling; AI SDK standalone Node streaming and approval protocol; Google provider support; generative accessibility compatibility and licenses; Gemini Maps grounding languages/model availability; Google Routes display/attribution policies; Gemini Live ephemeral credentials/audio/session lifecycle; Maps key restrictions; Gemini data-use terms; and Vercel static output, independent Node functions, repository-root package access, deployment protection, and rate limits.
 
 Record the exact documentation references and verification date in implementation evidence. This document schedules that verification; it does not claim that credentials, package compatibility, provider policies, deployment protection, or live integrations have already been tested.

@@ -4,7 +4,9 @@
 **Team:** Austin Obimbo, Gathoni Karume, Bakhoya Audry Imbukwa, John Mokaya, Vincent Mutwiri (Team 6)
 **Co-designer:** A person with a cognitive or psychosocial disability who finds Nairobi journeys stressful
 **Hackathon:** Sat 7 Nov 2026, 08:00–23:00, Senses Hub, Nairobi
-**Build state:** Greenfield Next.js app (no companion app exists yet)
+**Build state:** Greenfield client-side React + TypeScript app, bundled with esbuild; independent Vercel functions and a shared local Node backend (no companion app exists yet)
+
+**Implementation decision — November 5, 2026:** The sprint plan at `/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/Project/rehearse-journey-implementation-plan.md` is the delivery contract where it narrows this broader PRD. It selects one developer, a fictional hospital fixture, Linux + Chrome, local explicit preferences plus an approved checklist, no profile inference or backend database, and a 2D-first map experience. Real co-designer journey criteria remain explicitly unmet by the fictional fixture. The architecture below uses the lighter React approach, not Next.js; broader research features elsewhere in this draft are not automatically part of the demo.
 
 ---
 
@@ -14,7 +16,7 @@
 A person with a cognitive or psychosocial disability can find a real Nairobi journey — a matatu stage, a hospital reception, a public-service visit — confusing, stressful, and difficult to plan. They have no safe, self-paced way to *learn the steps in advance*, *practise the moments that worry them*, and *control the pace and sensory load* of that practice.
 
 ### Proposed Solution
-A personalised AI companion web app — **Rehearse the Journey** — built on Next.js App Router + the Vercel AI SDK v7 + Gemini (key provisioned by the hub) that lets a person rehearse *their own* journey as a series of `RehearsalStep`s they control. One assistant surface routes to purpose-specific services (text Gemini for Learn, Gemini Live for spoken role-play, Maps grounding + Routes for Explore, the app DB for what they save). Every journey advance — `go_to_step`, `exit_rehearsal`, `save_checklist` — is a **tool call paused behind a tool-approval gate**, so nothing the person did not approve ever happens or is ever saved. The person's access preferences live in the toolkit's existing `AbilityModel` profile (a view over `mine.profile`) and drive the toolkit's pure-DOM adapters (`read-aloud`, `simplify-text`, `stop-auto-advance`, `confirm-actions`, `calm-browsing`) running on the rendered page.
+A personalised AI companion web app — **Rehearse the Journey** — built with client-side React + TypeScript, plain CSS, esbuild, the Vercel AI SDK, and Gemini (key provisioned by the hub). Its longer-term goal is to let a person rehearse *their own* journey as a series of `RehearsalStep`s they control; the agreed demo uses a clearly labelled fictional fixture. One mounted interface calls purpose-specific services for narration/typed practice, Gemini Live spoken role-play, and Maps grounding + requested candidate Routes. Independent Vercel functions and a local Node host call the same backend service implementations. A framework-independent browser controller applies `go_to_step`, `exit_rehearsal`, and `save_checklist` only after matched approval and validated completion. Explicit access preferences live in the toolkit profile, projected as AbilityModel, and drive reversible adaptations. Only explicitly edited preferences and one approved checklist persist locally; no backend database is required.
 
 ### Success Criteria (Nov 7 demo)
 1. The co-designer runs the **complete 7-step flow live, on stage**, without a teammate driving for them: states intent → sets preferences → walks reviewed steps → explores location → rehearses a role-play → exits/pauses/saves via the approval gate. *(Hits judging weights: Fit-to-person 30% + Working solution shown by co-designer 30%.)*
@@ -150,7 +152,7 @@ Acceptance criteria:
 | :-- | :-- | :-- | :-- |
 | **Gemini API** (text) | Narrate steps, adapt explanations, generate steps from co-designer's account (grounded). | Hub short-lived `GEMINI_API_KEY`, server-side only. | ✅ |
 | **Gemini Live API** | Spoken role-play, Live help; optional camera. | Long-lived key server-side; browser gets short-lived ephemeral tokens via backend. | ✅ (typed alternative always available) |
-| **Vercel AI SDK v7** (`ai`, `@ai-sdk/react`) | `streamText` in `app/api/chat/route.ts`; `useChat` on the client; `zod` tool schemas; `toolApproval` + `addToolApprovalResponse`. | Apache-2.0, bundled. | ✅ |
+| **Vercel AI SDK** (`ai`, `@ai-sdk/react`) | `streamText` in shared backend services called by independent Vercel functions and a local Node host; React `useChat`; Zod tool schemas; version-verified approval configuration and `addToolApprovalResponse`. | Target v7 / React package v4 compatibility; verify and lock exact versions and licenses in Sprint 0. | ✅ |
 | **`@generative-a11y/ai-sdk` + `@generative-a11y/react`** | Paced live-region narration without focus theft; tool/approval/citation reports to AT. | Open-source (license-check before bundle). | ✅ |
 | **Google Maps grounding** | "What's near / where is the entrance" — answers grounded in Maps, with source links. | Maps Platform key — **confirmed provisioned** alongside Gemini. | ✅ |
 | **Google Maps Routes API** | Candidate route between locations. | Same Maps key. | ✅ (labelled "candidate, confirm") |
@@ -197,40 +199,35 @@ The research is explicit that AI output here can be wrong about things that matt
 ### 4.1 Architecture Overview
 
 ```
-                      ┌─────────────────────────────────────────┐
-                      │            Browser (one UI)              │
-                      │  Next.js App Router page (RSC-first)     │
-                      │  ┌──────────────────────────────────┐   │
-                      │  │  useChat (AI SDK v7)              │   │
-                      │  │  + useChatAccessibility           │   │
-                      │  │  + A11yProvider (generative-a11y) │   │
-                      │  │  → tool-* parts, approval-requested│  │
-                      │  └──────────────────────────────────┘   │
-                      │  Toolkit DOM adapters (run on the page): │
-                      │  read-aloud · simplify-text · stop-auto- │
-                      │  advance · confirm-actions · calm-browse│
-                      │  (driven by AbilityModel profile)        │
-                      └────────────┬────────────────────────────┘
-                                   │ streamText (SSE) + tool calls
-                                   │ + ephemeral Live tokens
-                                   ▼
-                      ┌─────────────────────────────────────────┐
-                      │   app/api/chat/route.ts (intent router)  │
-                      │   zod tool schemas, toolApproval gates    │
-                      └──┬───────────┬───────────┬───────────┬───┘
-                         │           │           │           │
-                         ▼           ▼           ▼           ▼
-                   text Gemini   Gemini Live  Maps ground  app DB
-                   (Learn/      (Practise/   + Routes     (approved
-                   explain)     Live help)   (Explore)    checklist only)
-                         │           │           │
-                         └───── toolkit/server LLM lane (extract/reflect/
-                                interpretNeedsPrompt) — key stays here
+Browser: static HTML + React + TypeScript + CSS (esbuild bundle)
+  ├── One mounted UI: useChat + generative accessibility integration
+  ├── Independent controller + approval coordinator (state authority)
+  ├── Local toolkit + reversible adaptation manager
+  ├── Media coordinator (Live and read-aloud lifetimes)
+  └── Durable storage: explicit preferences + approved checklist only
+          │
+          │ Same-origin API requests / AI SDK UI message streams
+          ▼
+Thin runtime entrypoints
+  ├── Vercel: independent Node functions
+  └── Local: Node host serving the same static build and services
+          │
+          ▼
+Shared schemas and backend services
+  ├── POST /api/chat       → Gemini narration / typed practice / proposals
+  ├── POST /api/live-token → ephemeral credential for browser Live session
+  ├── POST /api/explore    → Maps grounding / requested candidate Routes
+  └── POST /api/simplify   → plain-language rewrite or no replacement
+
+Browser Live session → provider directly using ephemeral credential
+No Next.js, SSR, backend app database, or profile-inference lane in MVP
 ```
 
-- **One assistant surface, several purpose-specific services.** The route handler routes by intent (mode), not by wiring every API into one conversation.
-- The chat *is* the journey controller; the mode switch picks which services the route handler calls.
-- The toolkit's DOM adapters run on the rendered page exactly as on any web page — the companion is just another host.
+- **One assistant surface, several purpose-specific services.** Shared backend modules own service logic; Vercel functions and the local Node host provide thin runtime adapters, not two copies of prompts/tools.
+- The browser controller, not chat, React, Live, or maps, owns journey state. All action sources use the same approval coordinator and exactly-once command checks.
+- React remains for chat/accessibility integration. The seven stages are controller state, not separate routes. DOM adapters operate through an explicit adaptation manager and owned prose containers; removing Next.js does not remove React/DOM ownership conflicts.
+- esbuild bundles client assets; TypeScript checking runs separately. Keep client/server entry graphs separate and never place server output or credentials in the static asset directory.
+- Local production serves the same built client and shared API services on one origin; it must not depend on proxying to the deployed site. Fixture mode remains independent of external providers.
 
 ### 4.2 Data Model — `RehearsalStep`
 
@@ -272,9 +269,12 @@ Writes go through the existing `setProfileField('fields.needs', …)` path — z
 
 ### 4.4 Integration Points
 
-- **Vercel AI SDK v7** — `streamText` in `app/api/chat/route.ts`, `useChat` on the client, `zod` tool schemas, `toolApproval` + `addToolApprovalResponse`. Reference architecture: `BjornMelin/tripsage-ai` (MIT) for route handlers, streaming, BYOK key handling.
-- **Toolkit adapters** — import from `tools/adapters/*` and `toolkit/skills/builtin/calm-browsing.md`. No new adapters required for the first cut.
-- **Toolkit server LLM lane** — `server/` with `GEMINI_API_KEY` enabled; prefer `extract`/`reflect`/`interpretNeedsPrompt` over a new proxy. The companion's route handler calls this lane for any profile inference.
+- **React + esbuild foundation** — one static entry and mounted React interface; TypeScript controller and schemas; plain CSS; no Next.js, client router, or additional backend framework. Preserve the root package/test structure with an explicit app lockfile and CI job.
+- **Vercel AI SDK** — `streamText` in shared backend services; `useChat` and `addToolApprovalResponse` in React. Verify exact approval policy APIs and precedence for the pinned version. Keep the existing UI stream/accessibility integration rather than inventing a replacement protocol.
+- **Backend runtimes** — independent Vercel functions and a local Node host call the same chat, live-token, explore, and simplify services. Verify stream/cancellation parity, not just JSON success responses.
+- **Toolkit adapters** — bundle selected catalog modules locally and manage their enable/disable/restore lifecycle separately from the UI. Use existing adapters where possible; test missing mappings, confirmation exclusions, and React-safe prose ownership rather than assuming drop-in compatibility.
+- **Redbird reference** — adopt static frontend/function separation, an isolated toolkit bridge, authored fallbacks, reversible adaptations, and one announcement channel. Do not copy its workshop runtime, CDN loader, remote-token persistence, observation learning, or reload-to-undo behavior.
+- **Toolkit core** — browser-local `createToolkit`, explicit Librarian preference edits, AbilityModel projection, and profile-only durable KV. Hosted toolkit accounts, MCP console connectivity, and profile inference are deferred.
 - **Toolkit skill (new)** — `toolkit/skills/builtin/rehearse-journey.md`, modeled on `calm-browsing.md`, composing `motion-reducer` + `dark-mode` + `focus-mode` + `simplify-text` + `read-aloud` + `stop-auto-advance` + `confirm-actions`. This is the team's contribution back to the toolkit (judging: "Use of the toolkit and contribution back" 20%).
 - **Maps Platform** — `<gmp-map-3d>` + `flyCameraTo` for Explore if Nairobi mesh coverage + provisioned key verify on the day; else Leaflet + OSM + Digital Matatus data. Maps grounding + Routes via the same key.
 - **Digital Matatus** — GTFS data + transit map for the matatu-stage scenario; the `data/` directory of `aaronfrank254-oss/matatu-tracker` is the most reusable part (license-check before bundling code).
@@ -308,7 +308,7 @@ Deliverables shipped: working code in a public repo (or PR to the toolkit), READ
 
 **Pre-hackathon build order (Fri 6 Nov brief → Sat 7 Nov)**
 - *Thu 5 Nov (today):* PRD signed off; co-designer interview scheduled to author the seeded `RehearsalStep` set; repo scaffolded.
-- *Fri 6 Nov:* Next.js + AI SDK v7 scaffold; route handler with intent router; 5 tools declared; tool-approval gate wired; AbilityModel read path; toolkit adapters wired; seeded step set authored; Maps key verified for Nairobi coverage; spend meter visible.
+- *Fri 6 Nov:* Continue the lighter React + esbuild foundation from Sprint 0: shared backend services with Vercel/local Node entrypoints, approval coordinator, AbilityModel read path, reversible adaptations, fictional step set, and required Gemini/Maps integrations. Follow the sequential sprint gates and report blocked integrations honestly; no Next.js scaffold is required.
 - *Sat 7 Nov AM:* Co-designer dry-run; fix what breaks; log toolkit issues; record demo video.
 - *Sat 7 Nov PM:* Live demo by the co-designer.
 

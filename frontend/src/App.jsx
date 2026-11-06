@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { SCENARIOS, generateAIResponse } from './engine.js';
 
 function BrandMark() {
   return (
@@ -256,12 +257,48 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
   const [transcript, setTranscript] = useState('');
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState('Tap microphone below to respond');
-  const [opening, hints] = conversationOpenings[scenario.key][level];
+  const levelData = SCENARIOS[scenario.key].levels[level];
+  const [currentMessage, setCurrentMessage] = useState(levelData.opening);
+  const [currentSpeaker, setCurrentSpeaker] = useState(SCENARIOS[scenario.key].speakers.primary);
+  const [currentHints, setCurrentHints] = useState(levelData.hints);
+  const [conversationTurn, setConversationTurn] = useState(0);
+  const [conversationHistory, setConversationHistory] = useState([]);
   const levelTitle = levels.find((item) => item.number === level)?.title ?? 'Easy Start';
 
   const focusForTypedFallback = () => {
     document.getElementById('user-speech-input')?.focus();
     setStatus('Please type your response in the box below.');
+  };
+
+  const submitUserResponse = async () => {
+    const text = transcript.trim();
+    if (!text) {
+      setStatus('Please speak into the microphone or type a reply first.');
+      return;
+    }
+
+    const nextHistory = [...conversationHistory, { sender: 'user', text }];
+    setConversationHistory(nextHistory);
+    setTranscript('');
+    setStatus('Preparing a response...');
+    const response = await generateAIResponse(text, nextHistory, scenario.key, level, conversationTurn);
+    setConversationTurn((turn) => turn + 1);
+    setCurrentSpeaker(response.speaker || SCENARIOS[scenario.key].speakers.primary);
+    setCurrentMessage(response.text);
+    setCurrentHints(response.hints || []);
+    setConversationHistory((history) => [...history, { sender: response.speaker, text: response.text }]);
+    setStatus('Tap microphone to reply when you are ready.');
+  };
+
+  const restartScenario = () => {
+    setTranscript('');
+    setPaused(false);
+    setStatus('Tap microphone below to respond');
+    setCurrentSpeaker(SCENARIOS[scenario.key].speakers.primary);
+    setCurrentMessage(levelData.opening);
+    setCurrentHints(levelData.hints);
+    setConversationTurn(0);
+    setConversationHistory([]);
   };
 
   return (
@@ -285,13 +322,13 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
           <div className="speaker-meta">
             <div>
               <span className="helper-text speaker-label">Speaking Now:</span>
-              <span className="badge badge-black speaker-badge">{speakerNames[scenario.key]}</span>
+              <span className="badge badge-black speaker-badge">{currentSpeaker}</span>
             </div>
             <button type="button" className="btn btn-white btn-compact" aria-label="Repeat what the companion just said aloud">
               🔊 Repeat Message
             </button>
           </div>
-          <div className="ai-speech-bubble" tabIndex="0" aria-live="polite">&quot;{opening}&quot;</div>
+          <div className="ai-speech-bubble" tabIndex="0" aria-live="polite">&quot;{currentMessage}&quot;</div>
           <div className="status-strip" role="status">
             <span className="status-dot" />
             <span>{paused ? 'Conversation paused. Take your time.' : status}</span>
@@ -302,7 +339,7 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
               <span className="helper-text">(Tap any to populate input)</span>
             </div>
             <div className="hints-list">
-              {hints.map((hint) => (
+              {currentHints.map((hint) => (
                 <button type="button" className="hint-chip" key={hint} onClick={() => setTranscript(hint)}>{hint}</button>
               ))}
             </div>
@@ -321,13 +358,13 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
           <textarea id="user-speech-input" className="transcript-input" value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Your words will appear here as you speak, or you can type here anytime..." />
           <div className="transcript-actions">
             <button type="button" className="btn btn-white" onClick={() => setTranscript('')}>Clear Text</button>
-            <button type="button" className="btn btn-teal" onClick={() => setStatus(transcript.trim() ? 'Preparing a response...' : 'Please speak into the microphone or type a reply first.')}>Send Response 💬</button>
+            <button type="button" className="btn btn-teal" onClick={submitUserResponse}>Send Response 💬</button>
           </div>
         </div>
 
         <div className="action-controls-grid">
           <button type="button" className={`btn ${paused ? 'btn-teal' : 'btn-white'}`} onClick={() => setPaused((value) => !value)}>{paused ? '▶️ Resume Conversation' : '⏸️ Pause Conversation'}</button>
-          <button type="button" className="btn btn-white" onClick={() => setTranscript('')}>Restart Scenario</button>
+          <button type="button" className="btn btn-white" onClick={restartScenario}>Restart Scenario</button>
           <button type="button" className="btn btn-red" onClick={onEnd}>Finish / Exit</button>
         </div>
       </div>

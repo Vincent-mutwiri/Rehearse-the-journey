@@ -85,11 +85,18 @@ Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before**
 - [ ] **Gate:** the scaffolded bot answers you live over SmallWebRTC on the demo machine. If Gemini Live access is missing, fall back to STT+LLM+TTS (Deepgram + Gemini/OpenAI + Cartesia/Google TTS) and record the fallback as a status note — do not claim Live is verified when it isn't.
 
 ### S1 — One Receptionist Joy role-play Flow · tonight · ~2.5 h
-- [ ] In `bot.py`, set the system prompt to pin the character: Receptionist Joy, the **fictional** hospital reception, Level 1 (short predictable exchange), warm plain-language tone, never invents the hospital's real internal process.
+- [x] In `bot.py`, set the system prompt to pin the character: Receptionist Joy, the **fictional** hospital reception, Level 1 (short predictable exchange), warm plain-language tone, never invents the hospital's real internal process.
 - [ ] Get one full spoken turn working end-to-end: user speaks → Joy responds in character, on the demo machine mic.
-- [ ] Add the **typed role-play input** in the React client as the guaranteed alternative — send text into the same conversation. Mic must not be required.
-- [ ] Label the fixture as fictional in the UI.
+- [x] Add the **typed role-play input** in the React client as the guaranteed alternative — send text into the same conversation. Mic must not be required. Implemented via RTVI; browser regression uses a mocked bot. Provider-backed acceptance remains below.
+- [x] Label the fixture as fictional in the UI.
 - [ ] **Gate:** you can complete one spoken role-play turn with Joy **and** one typed turn, on the demo machine, without the mic.
+
+S1 implementation note (Nov 6): the Level 1 sequence is prompt-driven, not a
+Pipecat Flows state machine. OpenAI STT → GPT-4o → TTS is the selected default;
+the optional Gemini path now uses the actual Gemini Live service, but is unverified.
+The client starts with mic off and offers explicit microphone activation. Build,
+Python syntax, and mocked browser checks pass. Local-provider and physical-mic
+checks remain open; do not mark S0 or S1 gates complete from those automated checks.
 
 ### S2 — Controller + pause/exit + selection · tonight/Sat AM · ~2 h
 - [ ] React controller owns role-play state (`idle | listening | speaking | paused | ended`). Pipecat proposes; the controller decides.

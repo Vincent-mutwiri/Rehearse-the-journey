@@ -8,13 +8,12 @@
  *   - Typed input is ALWAYS available (guaranteed alternative to voice)
  *   - Pause / Exit are always-visible DOM buttons
  *
- * S0 scope: connects to bot, shows connection status, typed input works.
- * S1 scope: Joy speaks first, role-play flow, full controller.
+ * S1 scope: Joy speaks first, shared spoken/typed conversation, opt-in mic.
  * S2 scope: scenario/level selection, approval gate, pause/exit.
  * S3 scope: toolkit adapters ×4.
  */
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import {
   PipecatClientProvider,
   PipecatClientAudio,
@@ -145,6 +144,14 @@ function RehearsalView() {
   const [state, setState] = useState<RolePlayState>('idle')
   const [turns, setTurns] = useState<Turn[]>([])
   const [typedInput, setTypedInput] = useState('')
+  const [error, setError] = useState('')
+  const [micEnabled, setMicEnabled] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const stoppingRef = useRef(false)
+  const active = useRef(false)
+  const sendingRef = useRef(false)
+  const generation = useRef(0)
   const turnId = useRef(0)
 
   const addTurn = useCallback((speaker: 'Joy' | 'You', text: string) => {
@@ -153,63 +160,135 @@ function RehearsalView() {
 
   // Listen for bot transcript events
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
-    addTurn('Joy', data.text)
-    setState('listening')
+    if (active.current && data.text.trim()) addTurn('Joy', data.text)
   })
 
   useRTVIClientEvent(RTVIEvent.UserTranscript, (data: { text: string; final: boolean }) => {
-    if (data.final) addTurn('You', data.text)
+    if (active.current && data.final) addTurn('You', data.text)
   })
 
-  useRTVIClientEvent(RTVIEvent.Connected, () => setState('listening'))
-  useRTVIClientEvent(RTVIEvent.Disconnected, () => setState('ended'))
-  useRTVIClientEvent(RTVIEvent.BotStartedSpeaking, () => setState('speaking'))
-  useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, () => setState('listening'))
+  useRTVIClientEvent(RTVIEvent.BotReady, () => {
+    if (active.current) setState('listening')
+  })
+  useRTVIClientEvent(RTVIEvent.Disconnected, () => {
+    if (active.current) {
+      active.current = false
+      setMicEnabled(false)
+      setState('ended')
+      setError('Connection ended. Start again to reconnect to Joy.')
+    }
+  })
+  useRTVIClientEvent(RTVIEvent.BotStartedSpeaking, () => {
+    if (active.current) setState('speaking')
+  })
+  useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, () => {
+    if (active.current) setState('listening')
+  })
+  useRTVIClientEvent(RTVIEvent.Error, () => {
+    if (active.current) setError('Joy could not complete that response. Try again or exit and reconnect.')
+  })
+  useRTVIClientEvent(RTVIEvent.DeviceError, () => {
+    client?.enableMic(false)
+    setMicEnabled(false)
+    setError('Microphone unavailable. You can keep typing with the mic off.')
+  })
+
+  useEffect(function disconnectOnUnmount() {
+    return () => {
+      active.current = false
+      generation.current++
+      void client?.disconnect().catch(() => {})
+    }
+  }, [client])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleStart = async () => {
+    if (!client || active.current || stoppingRef.current) return
+    const current = ++generation.current
+    active.current = true
+    setError('')
+    setMicEnabled(false)
+    client.enableMic(false)
     setState('connecting')
     try {
-      await client?.connect()
-    } catch (err) {
-      console.error('Connection error:', err)
-      setState('idle')
+      await client.connect()
+      if (current !== generation.current) {
+        await client.disconnect()
+        return
+      }
+      setState('listening')
+    } catch {
+      if (current === generation.current) {
+        active.current = false
+        await client.disconnect().catch(() => {})
+        setError('Could not connect to Joy. Check that the bot is running on localhost:7860, then try again.')
+        setState('idle')
+      }
     }
   }
 
-  const handlePause = useCallback(async () => {
-    // Mute + suspend transport — Pause stops audio immediately (safeguarding)
-    await client?.enableMic(false)
-    setState('paused')
-  }, [client])
-
-  const handleResume = useCallback(async () => {
-    // Resume is explicit — never auto-restart mic
-    await client?.enableMic(true)
-    setState('listening')
-  }, [client])
-
-  const handleExit = useCallback(async () => {
-    await client?.disconnect()
-    setState('ended')
+  const stopSession = useCallback(async (next: 'paused' | 'ended') => {
+    active.current = false
+    generation.current++
+    stoppingRef.current = true
+    setStopping(true)
+    client?.enableMic(false)
+    const tracks = client?.tracks()
+    tracks?.local.audio?.stop()
+    tracks?.bot?.audio?.stop()
+    setMicEnabled(false)
+    setState(next)
+    // Remove the audio element in this render, before network cleanup finishes.
+    try {
+      await client?.disconnect()
+    } catch {
+      setError('Connection cleanup failed. Reload this page before starting again.')
+    } finally {
+      stoppingRef.current = false
+      setStopping(false)
+    }
   }, [client])
 
   const handleSendText = useCallback(async () => {
-    if (!typedInput.trim()) return
-    addTurn('You', typedInput.trim())
-    // Send text into the conversation
+    const text = typedInput.trim()
+    if (!client || !active.current || sendingRef.current || !text ||
+        (state !== 'listening' && state !== 'speaking')) return
+    const current = generation.current
+    sendingRef.current = true
+    setSending(true)
+    setError('')
     try {
-      await client?.sendText(typedInput.trim())
-    } catch (e) {
-      console.warn('sendText failed — bot may not be connected yet', e)
+      await client.sendText(text, { run_immediately: true, audio_response: true })
+      if (active.current && current === generation.current) {
+        addTurn('You', text)
+        setTypedInput('')
+      }
+    } catch {
+      if (active.current && current === generation.current) {
+        setError('Your message could not be sent. Your text is still here; try Send again.')
+      }
+    } finally {
+      sendingRef.current = false
+      setSending(false)
     }
-    setTypedInput('')
-  }, [client, typedInput, addTurn])
+  }, [client, typedInput, addTurn, state])
+
+  const handleToggleMic = () => {
+    if (!client || !active.current) return
+    try {
+      client.enableMic(!micEnabled)
+      setMicEnabled(!micEnabled)
+      setError('')
+    } catch {
+      setMicEnabled(false)
+      setError('Microphone unavailable. You can keep typing with the mic off.')
+    }
+  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const isConnected = state === 'listening' || state === 'speaking' || state === 'paused'
+  const isConnected = state === 'listening' || state === 'speaking'
 
   return (
     <div style={styles.app}>
@@ -226,22 +305,25 @@ function RehearsalView() {
       {/* ── Fictional fixture disclosure ── */}
       <div style={styles.fiction} role="note" aria-label="Fictional scenario notice">
         ⚠️ <strong>Practice scenario — not a real hospital.</strong> This conversation
-        is fictional and used only for rehearsal.
+        is fictional and used only for rehearsal. Use made-up details. Starting
+        connects to an AI provider; typed messages and any enabled microphone audio
+        are sent for replies. The mic starts off. This app does not save the transcript.
       </div>
 
       {/* ── Connection status ── */}
       <div style={styles.statusArea} aria-live="polite" aria-label="Connection status">
         {state === 'idle'       && <p>Ready to start. Press <strong>Start Rehearsal</strong> to connect to Joy.</p>}
         {state === 'connecting' && <p>⏳ Connecting to Joy…</p>}
-        {state === 'listening'  && <p>🎤 Joy is listening — speak or type below.</p>}
+        {state === 'listening'  && <p>{micEnabled ? 'Microphone on — speak or type below.' : 'Microphone off — type below, or turn on your microphone.'}</p>}
         {state === 'speaking'   && <p>🔊 Joy is speaking…</p>}
-        {state === 'paused'     && <p>⏸ Paused — your mic is off. Press <strong>Resume</strong> when ready.</p>}
+        {state === 'paused'     && <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>}
         {state === 'ended'      && (
-          <p>✅ Session ended. <button style={styles.btnTeal} onClick={() => { setTurns([]); setState('idle') }}>
+          <p>Session ended. <button disabled={stopping} style={styles.btnTeal} onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}>
             Start again
           </button></p>
         )}
       </div>
+      {error && <p role="alert">{error}</p>}
 
       {/* ── Transcript ── */}
       <section style={styles.transcript} aria-label="Conversation transcript" aria-live="polite">
@@ -261,9 +343,10 @@ function RehearsalView() {
           placeholder="Type here — works with or without mic"
           style={styles.textarea}
           value={typedInput}
+          maxLength={2000}
           onChange={e => setTypedInput(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               handleSendText()
             }
@@ -272,10 +355,10 @@ function RehearsalView() {
         <button
           style={isConnected ? styles.btnTeal : { ...styles.btnTeal, opacity: 0.5 }}
           onClick={handleSendText}
-          disabled={!isConnected || !typedInput.trim()}
+          disabled={!isConnected || sending || !typedInput.trim()}
           aria-label="Send typed message"
         >
-          Send
+          {sending ? 'Sending…' : 'Send'}
         </button>
       </div>
 
@@ -286,25 +369,30 @@ function RehearsalView() {
             Start Rehearsal
           </button>
         )}
-        {isConnected && state !== 'paused' && (
-          <button style={styles.btnBlack} onClick={handlePause} aria-label="Pause — stops your mic immediately">
+        {isConnected && (
+          <button style={styles.btnBlack} onClick={() => void stopSession('paused')} aria-label="Pause — stops audio and microphone">
             ⏸ Pause
           </button>
         )}
         {state === 'paused' && (
-          <button style={styles.btnTeal} onClick={handleResume} aria-label="Resume rehearsal">
-            ▶ Resume
+          <button disabled={stopping} style={styles.btnTeal} onClick={handleStart} aria-label="Reconnect with microphone off">
+            Reconnect with mic off
+          </button>
+        )}
+        {(isConnected || state === 'paused' || state === 'connecting') && (
+          <button style={styles.btnRed} onClick={() => void stopSession('ended')} aria-label="Exit rehearsal — ends the session">
+            ✕ Exit
           </button>
         )}
         {isConnected && (
-          <button style={styles.btnRed} onClick={handleExit} aria-label="Exit rehearsal — ends the session">
-            ✕ Exit
+          <button style={styles.btnBlack} onClick={handleToggleMic} aria-pressed={micEnabled}>
+            {micEnabled ? 'Turn microphone off' : 'Turn microphone on'}
           </button>
         )}
       </div>
 
       {/* Pipecat audio element (required for voice output) */}
-      <PipecatClientAudio />
+      {isConnected && <PipecatClientAudio />}
     </div>
   )
 }
@@ -318,7 +406,7 @@ export default function App() {
       // Vite dev proxy forwards /api → http://localhost:7860
       webrtcRequestParams: { endpoint: '/api/offer' },
     }),
-    enableMic: true,
+    enableMic: false,
     enableCam: false,
   }), [])
 

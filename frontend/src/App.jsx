@@ -335,6 +335,39 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
   );
 }
 
+function SummaryScreen({ scenario, level, onPractiseAgain, onLevel, onScenario, onHome }) {
+  const levelTitle = levels.find((item) => item.number === level)?.title ?? 'Easy Start';
+
+  return (
+    <section id="screen-summary" className="screen" aria-labelledby="summary-title">
+      <div className="card center-text summary-card">
+        <div className="completion-illustration" aria-hidden="true">🌱</div>
+        <h1 id="summary-title">Rehearsal Completed!</h1>
+        <p className="summary-lead">Well done on taking the time to practise today.</p>
+        <div className="summary-badges">
+          <span className="badge badge-teal">{scenario.title}</span>
+          <span className="badge badge-black">Level {level}: {levelTitle}</span>
+          <span className="badge badge-white">4 Conversational Turns</span>
+        </div>
+        <div className="phrases-card">
+          <h2>✨ Useful Phrases Practised:</h2>
+          <ul>
+            <li>&quot;I have an appointment.&quot;</li>
+            <li>&quot;Could you please repeat where Room 4 is located?&quot;</li>
+          </ul>
+        </div>
+        <p className="summary-message">Remember: Conversation is a skill that develops at your own pace. You can practise again whenever you are ready.</p>
+        <div className="summary-actions">
+          <button type="button" className="btn btn-teal" onClick={onPractiseAgain}>Practise This Scenario Again 🔄</button>
+          <button type="button" className="btn btn-white" onClick={onLevel}>Try Another Level 🎚️</button>
+          <button type="button" className="btn btn-white" onClick={onScenario}>Choose Another Scenario 🗺️</button>
+          <button type="button" className="btn btn-black" onClick={onHome}>Return to Home 🏠</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState('welcome');
   const [selectedScenario, setSelectedScenario] = useState('hospital');
@@ -374,7 +407,17 @@ export default function App() {
             scenario={selectedScenarioData}
             level={selectedLevel}
             onChangeLevel={() => setScreen('difficulty')}
-            onEnd={() => setScreen('difficulty')}
+            onEnd={() => setScreen('summary')}
+          />
+        )}
+        {screen === 'summary' && (
+          <SummaryScreen
+            scenario={selectedScenarioData}
+            level={selectedLevel}
+            onPractiseAgain={() => setScreen('conversation')}
+            onLevel={() => setScreen('difficulty')}
+            onScenario={() => setScreen('scenarios')}
+            onHome={() => setScreen('welcome')}
           />
         )}
       </main>

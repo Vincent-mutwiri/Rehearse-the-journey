@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  font-family: system-ui, sans-serif;
+  color: #111;
+  background: #fff;
+  --active-background: oklch(0.696 0.17 162.48);
+  --active-foreground: oklch(0.979 0.021 166.113);
+  --inactive-background: oklch(0.702 0.189 22.23);
+  --inactive-foreground: oklch(0.971 0.013 17.38);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+@theme inline {
+  --animate-ptt-pulse: ptt-pulse 1.5s ease-in-out infinite;
+  --color-active: var(--active-background);
+  --color-active-foreground: var(--active-foreground);
+  --color-inactive: var(--inactive-background);
+  --color-inactive-foreground: var(--inactive-foreground);
+  --color-inactive-background: var(--inactive-background);
+  --color-active-background: var(--active-background);
+  @keyframes ptt-pulse {
+  50% {
+    outline-color: color-mix(in oklab, var(--active-background) 30%, transparent);
+    }
+  }
+}
+
+.dark {
+  --active-background: oklch(0.702 0.158 160.44);
+  --active-foreground: oklch(0.979 0.021 166.11);
+  --inactive-background: oklch(0.702 0.189 22.23);
+  --inactive-foreground: oklch(0.971 0.013 17.38);
+}

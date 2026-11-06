@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 function BrandMark() {
   return (
@@ -11,7 +11,7 @@ function BrandMark() {
   );
 }
 
-function Header({ onHome }) {
+function Header({ onHome, onSettings, onGuide }) {
   return (
     <header role="banner">
       <button className="brand-group" type="button" aria-label="Kioo Companion Home" onClick={onHome}>
@@ -23,10 +23,10 @@ function Header({ onHome }) {
       </button>
 
       <div className="header-controls">
-        <button type="button" className="btn btn-white" aria-haspopup="dialog" aria-expanded="false">
+        <button type="button" className="btn btn-white" aria-haspopup="dialog" aria-expanded="false" onClick={onSettings}>
           <span aria-hidden="true">⚙️</span> Accessibility Settings
         </button>
-        <button type="button" className="btn btn-white" aria-haspopup="dialog" aria-expanded="false">
+        <button type="button" className="btn btn-white" aria-haspopup="dialog" aria-expanded="false" onClick={onGuide}>
           <span aria-hidden="true">ℹ️</span> How It Works
         </button>
       </div>
@@ -65,7 +65,7 @@ function Mascot() {
   );
 }
 
-function WelcomeScreen({ onStart }) {
+function WelcomeScreen({ onStart, onSettings, onGuide }) {
   return (
     <section id="screen-welcome" className="screen" aria-labelledby="welcome-title">
       <div className="card center-text">
@@ -81,8 +81,8 @@ function WelcomeScreen({ onStart }) {
             Start Practising Now <span aria-hidden="true">→</span>
           </button>
           <div className="welcome-secondary-actions">
-            <button type="button" className="btn btn-white">⚙️ Customise Accessibility</button>
-            <button type="button" className="btn btn-white">💡 How It Works</button>
+            <button type="button" className="btn btn-white" onClick={onSettings}>⚙️ Customise Accessibility</button>
+            <button type="button" className="btn btn-white" onClick={onGuide}>💡 How It Works</button>
           </div>
         </div>
       </div>
@@ -368,11 +368,99 @@ function SummaryScreen({ scenario, level, onPractiseAgain, onLevel, onScenario, 
   );
 }
 
+const defaultPreferences = {
+  textSize: 'normal',
+  speechSpeed: 1.0,
+  enhancedContrast: false,
+  reduceMotion: false,
+  showHints: true,
+  showTranscript: true,
+  soundEffects: false,
+};
+
+function AccessibilityModal({ preferences, onChange, onClose }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+      <div className="modal-content">
+        <div className="modal-heading">
+          <h2 id="settings-dialog-title">⚙️ Accessibility Preferences</h2>
+          <button type="button" className="btn btn-white btn-compact" onClick={onClose} aria-label="Close Settings">✕ Close</button>
+        </div>
+        <fieldset className="settings-group">
+          <legend>Text Size</legend>
+          <div className="radio-pill-group">
+            {[['normal', 'Standard (20px)'], ['large', 'Large (23px)'], ['xlarge', 'Extra Large (26px)']].map(([value, label]) => (
+              <label className="radio-pill-label" key={value}>
+                <input type="radio" name="pref-text-size" value={value} checked={preferences.textSize === value} onChange={() => onChange('textSize', value)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="settings-group">
+          <legend>AI Spoken Speed</legend>
+          <div className="radio-pill-group">
+            {[[0.8, 'Slow & Clear'], [1.0, 'Normal Speed'], [1.2, 'Faster']].map(([value, label]) => (
+              <label className="radio-pill-label" key={value}>
+                <input type="radio" name="pref-speech-speed" value={value} checked={preferences.speechSpeed === value} onChange={() => onChange('speechSpeed', value)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="settings-group">
+          <legend>Visual Display &amp; Motion</legend>
+          <div className="settings-checks">
+            <label className="checkbox-label"><input type="checkbox" checked={preferences.enhancedContrast} onChange={(event) => onChange('enhancedContrast', event.target.checked)} />Enhanced High Contrast Borders</label>
+            <label className="checkbox-label"><input type="checkbox" checked={preferences.reduceMotion} onChange={(event) => onChange('reduceMotion', event.target.checked)} />Reduce Animations (Calm Mode)</label>
+          </div>
+        </fieldset>
+        <fieldset className="settings-group">
+          <legend>Conversation Assistance</legend>
+          <div className="settings-checks">
+            <label className="checkbox-label"><input type="checkbox" checked={preferences.showHints} onChange={(event) => onChange('showHints', event.target.checked)} />Show Suggested Response Hints</label>
+            <label className="checkbox-label"><input type="checkbox" checked={preferences.showTranscript} onChange={(event) => onChange('showTranscript', event.target.checked)} />Show Response Textarea &amp; Review Box</label>
+            <label className="checkbox-label"><input type="checkbox" checked={preferences.soundEffects} onChange={(event) => onChange('soundEffects', event.target.checked)} />Enable Level 3/4 Ambient Stage Sounds (Default Off)</label>
+          </div>
+        </fieldset>
+        <div className="integration-note">
+          <p className="helper-text"><strong>💡 Preferences are automatically saved in local browser storage.</strong></p>
+          <p className="helper-text integration-copy">Ready for future sync with the <a href="https://github.com/AI-for-Accessibility-Collective/AI-for-Accessibility-Toolkit" target="_blank" rel="noopener noreferrer">AI for Accessibility Toolkit</a>.</p>
+        </div>
+        <div className="modal-footer-action"><button type="button" className="btn btn-teal" onClick={onClose}>Done &amp; Save Preferences</button></div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState('welcome');
   const [selectedScenario, setSelectedScenario] = useState('hospital');
   const selectedScenarioData = scenarios.find(({ key }) => key === selectedScenario) ?? scenarios[0];
   const [selectedLevel, setSelectedLevel] = useState(1);
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      return { ...defaultPreferences, ...JSON.parse(localStorage.getItem('kioo_companion_prefs') ?? '{}') };
+    } catch {
+      return defaultPreferences;
+    }
+  });
+  const [modal, setModal] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem('kioo_companion_prefs', JSON.stringify(preferences));
+  }, [preferences]);
+
+  useEffect(() => {
+    if (!modal) return undefined;
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setModal(null);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [modal]);
+
+  const updatePreference = (key, value) => setPreferences((current) => ({ ...current, [key]: value }));
 
   const selectScenario = (scenarioKey) => {
     setSelectedScenario(scenarioKey);
@@ -385,10 +473,10 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
-      <Header onHome={() => setScreen('welcome')} />
+    <div className={`app-shell text-${preferences.textSize} ${preferences.enhancedContrast ? 'enhanced-contrast' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''}`}>
+      <Header onHome={() => setScreen('welcome')} onSettings={() => setModal('settings')} onGuide={() => setModal('guide')} />
       <main id="app-main" role="main" aria-live="polite">
-        {screen === 'welcome' && <WelcomeScreen onStart={() => setScreen('scenarios')} />}
+        {screen === 'welcome' && <WelcomeScreen onStart={() => setScreen('scenarios')} onSettings={() => setModal('settings')} onGuide={() => setModal('guide')} />}
         {screen === 'scenarios' && (
           <ScenarioScreen
             onHome={() => setScreen('welcome')}
@@ -422,6 +510,8 @@ export default function App() {
         )}
       </main>
       <Footer />
+      {modal === 'settings' && <AccessibilityModal preferences={preferences} onChange={updatePreference} onClose={() => setModal(null)} />}
+      {modal === 'guide' && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal-content"><div className="modal-heading"><h2>How Kioo Companion Works</h2><button type="button" className="btn btn-white btn-compact" onClick={() => setModal(null)}>✕ Close</button></div><p><strong>1. Listen:</strong> Your virtual companion speaks first with realistic dialogue tailored to Nairobi scenarios.</p><p><strong>2. Respond:</strong> Press the big <em>Tap to Speak</em> button and talk naturally into your microphone. Or, if you prefer, type your reply in the text box.</p><p><strong>3. Edit anytime:</strong> Your spoken words are transcribed in real-time. You can adjust the text before sending.</p><p><strong>4. Unlimited time:</strong> Take all the time you need. If you need to step away, click <em>Pause Conversation</em>.</p><p><strong>5. Exit whenever you choose:</strong> Hit <em>End Practice</em> at any moment. There are no penalties or failing marks.</p><div className="modal-footer-action"><button type="button" className="btn btn-teal" onClick={() => setModal(null)}>Got It!</button></div></div></div>}
     </div>
   );
 }

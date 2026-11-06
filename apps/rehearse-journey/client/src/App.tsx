@@ -22,6 +22,7 @@ import {
 } from '@pipecat-ai/client-react'
 import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js'
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
+import { UserAudioControlView } from '@/components/pipecat/user-audio-control'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -385,9 +386,16 @@ function RehearsalView() {
           </button>
         )}
         {isConnected && (
-          <button style={styles.btnBlack} onClick={handleToggleMic} aria-pressed={micEnabled}>
-            {micEnabled ? 'Turn microphone off' : 'Turn microphone on'}
-          </button>
+          <UserAudioControlView
+            isMicEnabled={micEnabled}
+            onToggleMic={handleToggleMic}
+            noDevicePicker
+            noVisualizer
+            activeText="Microphone on"
+            inactiveText="Microphone off"
+            variant="outline"
+            unavailableText={stopping ? 'Stopping audio…' : undefined}
+          />
         )}
       </div>
 

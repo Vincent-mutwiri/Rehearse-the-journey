@@ -92,6 +92,19 @@ footer {
 .scenario-icon { font-size: 2.2rem; margin-bottom: 8px; }
 .scenario-description { margin-top: 10px; }
 .scenario-button { margin-top: 20px; }
+.selected-scenario-wrap { margin-bottom: 16px; }
+.difficulty-intro { margin-bottom: 22px; }
+.difficulty-list { display: flex; flex-direction: column; gap: 18px; }
+.level-card { margin-bottom: 0; border-left-width: 10px; }
+.level-teal { border-left-color: var(--color-teal); }
+.level-red { border-left-color: var(--color-red); }
+.level-black { border-left-color: var(--color-black); }
+.level-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.level-description { margin: 10px 0; }
+.badge { display: inline-block; padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 0.9rem; border: 2px solid var(--color-black); }
+.badge-teal { background-color: var(--color-teal); color: var(--color-white); }
+.badge-red { background-color: var(--color-red); color: var(--color-white); }
+.badge-black { background-color: var(--color-black); color: var(--color-white); }
 
 .mascot-container { display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 12px auto; }
 .mascot-svg { width: 140px; height: 140px; max-width: 100%; }

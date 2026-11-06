@@ -158,12 +158,79 @@ function ScenarioScreen({ onHome, onSelect }) {
   );
 }
 
+const levels = [
+  {
+    number: 1,
+    title: 'Easy Start',
+    badge: 'Calm & Predictable',
+    description: 'One companion, short simple sentences, one question at a time, no interruptions, unlimited time, and ready-to-use suggested hints.',
+    border: 'teal',
+  },
+  {
+    number: 2,
+    title: 'Everyday Practice',
+    badge: 'Natural Conversation',
+    description: 'Realistic everyday back-and-forth flow, standard follow-up questions, and slightly longer spoken sentences with zero pressure.',
+    border: 'teal',
+  },
+  {
+    number: 3,
+    title: 'Handling Changes',
+    badge: 'Gentle Variations',
+    description: 'Practise realistic minor surprises (e.g. room room reassignment, fare changes, missing documents). Safe rehearsal to handle slight uncertainty.',
+    border: 'red',
+  },
+  {
+    number: 4,
+    title: 'Busy Environment',
+    badge: 'Multi-Character Interaction',
+    description: 'Simulates two characters (such as receptionist plus someone asking about the queue line, or conductor and fellow passenger). Speakers are clearly identified.',
+    border: 'black',
+  },
+];
+
+function DifficultyScreen({ scenario, onBack, onSelect }) {
+  return (
+    <section id="screen-difficulty" className="screen" aria-labelledby="difficulty-title">
+      <div className="screen-back">
+        <button type="button" className="btn btn-white" onClick={onBack}>← Back to Scenarios</button>
+      </div>
+      <div className="selected-scenario-wrap">
+        <span className="badge badge-teal">Scenario: {scenario.title}</span>
+      </div>
+      <h1 id="difficulty-title">Select Practice Level</h1>
+      <p className="difficulty-intro">Every level is unlocked. Choose whatever feels right for you today. You can adjust this anytime during conversation.</p>
+      <div className="difficulty-list" role="list">
+        {levels.map((level) => (
+          <div className={`card level-card level-${level.border}`} role="listitem" key={level.number}>
+            <div className="level-heading">
+              <h2>Level {level.number}: {level.title}</h2>
+              <span className={`badge badge-${level.border}`}>{level.badge}</span>
+            </div>
+            <p className="level-description">{level.description}</p>
+            <button type="button" className="btn btn-teal" onClick={() => onSelect(level.number)}>
+              Start Level {level.number}: {level.title} →
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState('welcome');
   const [selectedScenario, setSelectedScenario] = useState('hospital');
+  const selectedScenarioData = scenarios.find(({ key }) => key === selectedScenario) ?? scenarios[0];
+  const [selectedLevel, setSelectedLevel] = useState(1);
 
   const selectScenario = (scenarioKey) => {
     setSelectedScenario(scenarioKey);
+    setScreen('difficulty');
+  };
+
+  const selectLevel = (levelNumber) => {
+    setSelectedLevel(levelNumber);
   };
 
   return (
@@ -175,6 +242,13 @@ export default function App() {
           <ScenarioScreen
             onHome={() => setScreen('welcome')}
             onSelect={selectScenario}
+          />
+        )}
+        {screen === 'difficulty' && (
+          <DifficultyScreen
+            scenario={selectedScenarioData}
+            onBack={() => setScreen('scenarios')}
+            onSelect={selectLevel}
           />
         )}
       </main>

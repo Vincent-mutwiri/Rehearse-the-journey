@@ -253,7 +253,7 @@ function DifficultyScreen({ scenario, onBack, onSelect }) {
   );
 }
 
-function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
+function ConversationScreen({ scenario, level, preferences, onChangeLevel, onEnd }) {
   const [transcript, setTranscript] = useState('');
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState('Tap microphone below to respond');
@@ -263,11 +263,117 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
   const [currentHints, setCurrentHints] = useState(levelData.hints);
   const [conversationTurn, setConversationTurn] = useState(0);
   const [conversationHistory, setConversationHistory] = useState([]);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [synthesisSupported, setSynthesisSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const recognitionRef = useRef(null);
+  const selectedVoiceRef = useRef(null);
   const levelTitle = levels.find((item) => item.number === level)?.title ?? 'Easy Start';
+
+  useEffect(() => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setSpeechSupported(Boolean(Recognition));
+    setSynthesisSupported('speechSynthesis' in window);
+
+    if (!Recognition) return undefined;
+
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-KE';
+    recognition.onstart = () => {
+      setListening(true);
+      setStatus("Listening... Speak when you're ready.");
+    };
+    recognition.onresult = (event) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        if (event.results[index].isFinal) finalTranscript += event.results[index][0].transcript;
+        else interimTranscript += event.results[index][0].transcript;
+      }
+      if (finalTranscript) setTranscript((value) => `${value ? `${value} ` : ''}${finalTranscript}`);
+      if (interimTranscript) setStatus(`Listening: "${interimTranscript}"...`);
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      if (event.error === 'not-allowed') setStatus('Microphone access blocked. You can type your reply below.');
+      else if (event.error === 'no-speech') setStatus('No speech heard. Tap microphone to try again or type below.');
+      else setStatus(`Microphone unavailable (${event.error}). You can type below.`);
+    };
+    recognition.onend = () => {
+      setListening(false);
+      if (!speaking && !paused) setStatus('Tap microphone to speak or click "Send Response"');
+    };
+    recognitionRef.current = recognition;
+
+    return () => {
+      try { recognition.stop(); } catch { /* Recognition may not have started. */ }
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return undefined;
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      selectedVoiceRef.current = voices.find((voice) => voice.lang === 'en-KE' || voice.lang.includes('KE'))
+        ?? voices.find((voice) => voice.lang.startsWith('en-'))
+        ?? null;
+    };
+    loadVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+  }, []);
+
+  const stopAISpeech = () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setSpeaking(false);
+  };
+
+  const speakAIResponse = (text) => {
+    if (!('speechSynthesis' in window) || !text) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.voice = selectedVoiceRef.current;
+    utterance.rate = Number(preferences.speechSpeed) || 1.0;
+    utterance.pitch = 1.0;
+    utterance.onstart = () => { setSpeaking(true); setStatus('Your companion is speaking aloud...'); };
+    utterance.onend = () => { setSpeaking(false); if (!paused) setStatus('Tap microphone to reply when you are ready.'); };
+    utterance.onerror = () => { setSpeaking(false); setStatus('Ready for your response.'); };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    if (synthesisSupported) {
+      const timer = window.setTimeout(() => speakAIResponse(currentMessage), 500);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [currentMessage, synthesisSupported]);
 
   const focusForTypedFallback = () => {
     document.getElementById('user-speech-input')?.focus();
     setStatus('Please type your response in the box below.');
+  };
+
+  const toggleMicrophone = () => {
+    if (paused) {
+      setStatus('Conversation is paused. Click Resume first.');
+      return;
+    }
+    if (speaking) stopAISpeech();
+    if (!speechSupported || !recognitionRef.current) {
+      focusForTypedFallback();
+      return;
+    }
+    if (listening) {
+      try { recognitionRef.current.stop(); } catch { /* Recognition may already be ending. */ }
+      setListening(false);
+    } else {
+      try { recognitionRef.current.start(); } catch { setStatus('Microphone is already active.'); }
+    }
   };
 
   const submitUserResponse = async () => {
@@ -278,6 +384,11 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
     }
 
     const nextHistory = [...conversationHistory, { sender: 'user', text }];
+    if (listening) {
+      try { recognitionRef.current?.stop(); } catch { /* Recognition may already be ending. */ }
+      setListening(false);
+    }
+    stopAISpeech();
     setConversationHistory(nextHistory);
     setTranscript('');
     setStatus('Preparing a response...');
@@ -324,7 +435,7 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
               <span className="helper-text speaker-label">Speaking Now:</span>
               <span className="badge badge-black speaker-badge">{currentSpeaker}</span>
             </div>
-            <button type="button" className="btn btn-white btn-compact" aria-label="Repeat what the companion just said aloud">
+            <button type="button" className="btn btn-white btn-compact" onClick={() => speakAIResponse(currentMessage)} aria-label="Repeat what the companion just said aloud">
               🔊 Repeat Message
             </button>
           </div>
@@ -347,10 +458,10 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
         </div>
 
         <div className="mic-button-wrapper">
-          <button type="button" className="btn btn-teal btn-mic" onClick={focusForTypedFallback}>
-            <span aria-hidden="true">🎙️</span><span>Tap to Speak</span>
+          <button type="button" className={`btn ${listening ? 'btn-red' : 'btn-teal'} btn-mic`} onClick={toggleMicrophone} aria-pressed={listening}>
+            <span aria-hidden="true">{listening ? '⏹️' : '🎙️'}</span><span>{listening ? 'Listening... Tap to Stop' : 'Tap to Speak'}</span>
           </button>
-          <p className="helper-text mic-subtext">Take your time. There is no rush or time limit.</p>
+          <p className="helper-text mic-subtext">{speechSupported ? 'Take your time. There is no rush or time limit.' : 'Spoken microphone recognition is not supported by your current browser. You can type your response below.'}</p>
         </div>
 
         <div className="transcript-box">
@@ -363,7 +474,7 @@ function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
         </div>
 
         <div className="action-controls-grid">
-          <button type="button" className={`btn ${paused ? 'btn-teal' : 'btn-white'}`} onClick={() => setPaused((value) => !value)}>{paused ? '▶️ Resume Conversation' : '⏸️ Pause Conversation'}</button>
+          <button type="button" className={`btn ${paused ? 'btn-teal' : 'btn-white'}`} onClick={() => { if (!paused) { if (listening) { try { recognitionRef.current?.stop(); } catch { /* no-op */ } setListening(false); } stopAISpeech(); } setPaused((value) => !value); }}>{paused ? '▶️ Resume Conversation' : '⏸️ Pause Conversation'}</button>
           <button type="button" className="btn btn-white" onClick={restartScenario}>Restart Scenario</button>
           <button type="button" className="btn btn-red" onClick={onEnd}>Finish / Exit</button>
         </div>
@@ -564,6 +675,7 @@ export default function App() {
           <ConversationScreen
             scenario={selectedScenarioData}
             level={selectedLevel}
+            preferences={preferences}
             onChangeLevel={() => setScreen('difficulty')}
             onEnd={() => setScreen('summary')}
           />

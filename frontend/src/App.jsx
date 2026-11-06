@@ -412,6 +412,29 @@ function ConversationScreen({ scenario, level, preferences, onChangeLevel, onEnd
     setConversationHistory([]);
   };
 
+  const finishPractice = () => {
+    const phrases = conversationHistory.filter((entry) => entry.sender === 'user').map((entry) => entry.text).slice(-3);
+    onEnd({
+      turns: conversationHistory.length,
+      phrases: phrases.length > 0 ? phrases : ['Listened to scenario opening dialogue and instructions.'],
+    });
+  };
+
+  const togglePause = () => {
+    if (!paused) {
+      if (listening) {
+        try { recognitionRef.current?.stop(); } catch { /* Recognition may already be ending. */ }
+        setListening(false);
+      }
+      stopAISpeech();
+      setPaused(true);
+      setStatus('Conversation paused. Take your time.');
+    } else {
+      setPaused(false);
+      setStatus('Conversation resumed. Tap microphone when ready.');
+    }
+  };
+
   return (
     <section id="screen-conversation" className="screen" aria-labelledby="conversation-header-info">
       <div className="card conversation-hud">
@@ -422,7 +445,7 @@ function ConversationScreen({ scenario, level, preferences, onChangeLevel, onEnd
           </div>
           <div className="hud-actions">
             <button type="button" className="btn btn-white btn-compact" onClick={onChangeLevel}>Change Level</button>
-            <button type="button" className="btn btn-red btn-compact" onClick={onEnd}>End Practice 🛑</button>
+            <button type="button" className="btn btn-red btn-compact" onClick={finishPractice}>End Practice 🛑</button>
           </div>
         </div>
       </div>
@@ -474,16 +497,16 @@ function ConversationScreen({ scenario, level, preferences, onChangeLevel, onEnd
         </div>
 
         <div className="action-controls-grid">
-          <button type="button" className={`btn ${paused ? 'btn-teal' : 'btn-white'}`} onClick={() => { if (!paused) { if (listening) { try { recognitionRef.current?.stop(); } catch { /* no-op */ } setListening(false); } stopAISpeech(); } setPaused((value) => !value); }}>{paused ? '▶️ Resume Conversation' : '⏸️ Pause Conversation'}</button>
+          <button type="button" className={`btn ${paused ? 'btn-teal' : 'btn-white'}`} onClick={togglePause}>{paused ? '▶️ Resume Conversation' : '⏸️ Pause Conversation'}</button>
           <button type="button" className="btn btn-white" onClick={restartScenario}>Restart Scenario</button>
-          <button type="button" className="btn btn-red" onClick={onEnd}>Finish / Exit</button>
+          <button type="button" className="btn btn-red" onClick={finishPractice}>Finish / Exit</button>
         </div>
       </div>
     </section>
   );
 }
 
-function SummaryScreen({ scenario, level, onPractiseAgain, onLevel, onScenario, onHome }) {
+function SummaryScreen({ scenario, level, summary, onPractiseAgain, onLevel, onScenario, onHome }) {
   const levelTitle = levels.find((item) => item.number === level)?.title ?? 'Easy Start';
 
   return (
@@ -495,14 +518,11 @@ function SummaryScreen({ scenario, level, onPractiseAgain, onLevel, onScenario, 
         <div className="summary-badges">
           <span className="badge badge-teal">{scenario.title}</span>
           <span className="badge badge-black">Level {level}: {levelTitle}</span>
-          <span className="badge badge-white">4 Conversational Turns</span>
+          <span className="badge badge-white">{summary.turns} Exchanges Recorded</span>
         </div>
         <div className="phrases-card">
           <h2>✨ Useful Phrases Practised:</h2>
-          <ul>
-            <li>&quot;I have an appointment.&quot;</li>
-            <li>&quot;Could you please repeat where Room 4 is located?&quot;</li>
-          </ul>
+          <ul>{summary.phrases.map((phrase) => <li key={phrase}>&quot;{phrase}&quot;</li>)}</ul>
         </div>
         <p className="summary-message">Remember: Conversation is a skill that develops at your own pace. You can practise again whenever you are ready.</p>
         <div className="summary-actions">
@@ -619,6 +639,7 @@ export default function App() {
   const [selectedScenario, setSelectedScenario] = useState('hospital');
   const selectedScenarioData = scenarios.find(({ key }) => key === selectedScenario) ?? scenarios[0];
   const [selectedLevel, setSelectedLevel] = useState(1);
+  const [sessionSummary, setSessionSummary] = useState({ turns: 0, phrases: ['Listened to scenario opening dialogue and instructions.'] });
   const [preferences, setPreferences] = useState(() => {
     try {
       return { ...defaultPreferences, ...JSON.parse(localStorage.getItem('kioo_companion_prefs') ?? '{}') };
@@ -650,6 +671,7 @@ export default function App() {
 
   const selectLevel = (levelNumber) => {
     setSelectedLevel(levelNumber);
+    setSessionSummary({ turns: 0, phrases: ['Listened to scenario opening dialogue and instructions.'] });
     setScreen('conversation');
   };
 
@@ -677,14 +699,15 @@ export default function App() {
             level={selectedLevel}
             preferences={preferences}
             onChangeLevel={() => setScreen('difficulty')}
-            onEnd={() => setScreen('summary')}
+            onEnd={(summary) => { setSessionSummary(summary); setScreen('summary'); }}
           />
         )}
         {screen === 'summary' && (
           <SummaryScreen
             scenario={selectedScenarioData}
             level={selectedLevel}
-            onPractiseAgain={() => setScreen('conversation')}
+            summary={sessionSummary}
+            onPractiseAgain={() => { setSessionSummary({ turns: 0, phrases: ['Listened to scenario opening dialogue and instructions.'] }); setScreen('conversation'); }}
             onLevel={() => setScreen('difficulty')}
             onScenario={() => setScreen('scenarios')}
             onHome={() => setScreen('welcome')}

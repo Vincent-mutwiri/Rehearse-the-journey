@@ -162,6 +162,7 @@ footer {
 .integration-copy { margin-top: 4px; }
 .integration-note a { color: var(--color-teal); font-weight: 700; }
 .modal-footer-action { display: flex; justify-content: flex-end; gap: 12px; }
+.guide-instructions { display: flex; flex-direction: column; gap: 14px; }
 .text-large { --base-font-size: 23px; }
 .text-xlarge { --base-font-size: 26px; }
 .enhanced-contrast .card, .enhanced-contrast button { box-shadow: 0 0 0 2px var(--color-black); }

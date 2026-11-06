@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function BrandMark() {
   return (
@@ -379,12 +379,18 @@ const defaultPreferences = {
 };
 
 function AccessibilityModal({ preferences, onChange, onClose }) {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
       <div className="modal-content">
         <div className="modal-heading">
           <h2 id="settings-dialog-title">⚙️ Accessibility Preferences</h2>
-          <button type="button" className="btn btn-white btn-compact" onClick={onClose} aria-label="Close Settings">✕ Close</button>
+          <button ref={closeButtonRef} type="button" className="btn btn-white btn-compact" onClick={onClose} aria-label="Close Settings">✕ Close</button>
         </div>
         <fieldset className="settings-group">
           <legend>Text Size</legend>
@@ -428,6 +434,33 @@ function AccessibilityModal({ preferences, onChange, onClose }) {
           <p className="helper-text integration-copy">Ready for future sync with the <a href="https://github.com/AI-for-Accessibility-Collective/AI-for-Accessibility-Toolkit" target="_blank" rel="noopener noreferrer">AI for Accessibility Toolkit</a>.</p>
         </div>
         <div className="modal-footer-action"><button type="button" className="btn btn-teal" onClick={onClose}>Done &amp; Save Preferences</button></div>
+      </div>
+    </div>
+  );
+}
+
+function GuideModal({ onClose }) {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-dialog-title">
+      <div className="modal-content">
+        <div className="modal-heading">
+          <h2 id="guide-dialog-title">How Kioo Companion Works</h2>
+          <button ref={closeButtonRef} type="button" className="btn btn-white btn-compact" onClick={onClose} aria-label="Close Guide">✕ Close</button>
+        </div>
+        <div className="guide-instructions">
+          <p><strong>1. Listen:</strong> Your virtual companion speaks first with realistic dialogue tailored to Nairobi scenarios.</p>
+          <p><strong>2. Respond:</strong> Press the big <em>Tap to Speak</em> button and talk naturally into your microphone. Or, if you prefer, type your reply in the text box.</p>
+          <p><strong>3. Edit anytime:</strong> Your spoken words are transcribed in real-time. You can adjust the text before sending.</p>
+          <p><strong>4. Unlimited time:</strong> Take all the time you need. If you need to step away, click <em>Pause Conversation</em>.</p>
+          <p><strong>5. Exit whenever you choose:</strong> Hit <em>End Practice</em> at any moment. There are no penalties or failing marks.</p>
+        </div>
+        <div className="modal-footer-action"><button type="button" className="btn btn-teal" onClick={onClose}>Got It!</button></div>
       </div>
     </div>
   );
@@ -511,7 +544,7 @@ export default function App() {
       </main>
       <Footer />
       {modal === 'settings' && <AccessibilityModal preferences={preferences} onChange={updatePreference} onClose={() => setModal(null)} />}
-      {modal === 'guide' && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal-content"><div className="modal-heading"><h2>How Kioo Companion Works</h2><button type="button" className="btn btn-white btn-compact" onClick={() => setModal(null)}>✕ Close</button></div><p><strong>1. Listen:</strong> Your virtual companion speaks first with realistic dialogue tailored to Nairobi scenarios.</p><p><strong>2. Respond:</strong> Press the big <em>Tap to Speak</em> button and talk naturally into your microphone. Or, if you prefer, type your reply in the text box.</p><p><strong>3. Edit anytime:</strong> Your spoken words are transcribed in real-time. You can adjust the text before sending.</p><p><strong>4. Unlimited time:</strong> Take all the time you need. If you need to step away, click <em>Pause Conversation</em>.</p><p><strong>5. Exit whenever you choose:</strong> Hit <em>End Practice</em> at any moment. There are no penalties or failing marks.</p><div className="modal-footer-action"><button type="button" className="btn btn-teal" onClick={() => setModal(null)}>Got It!</button></div></div></div>}
+      {modal === 'guide' && <GuideModal onClose={() => setModal(null)} />}
     </div>
   );
 }

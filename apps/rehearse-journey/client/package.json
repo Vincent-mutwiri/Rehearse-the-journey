@@ -1,0 +1,25 @@
+{
+  "name": "rehearse-journey-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@pipecat-ai/client-js": "^1.16.0",
+    "@pipecat-ai/client-react": "^1.11.0",
+    "@pipecat-ai/small-webrtc-transport": "^1.11.2",
+    "react": "^18.3",
+    "react-dom": "^18.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3",
+    "@types/react-dom": "^18.3",
+    "@vitejs/plugin-react": "^4.3",
+    "typescript": "^5.5",
+    "vite": "^5.4"
+  }
+}

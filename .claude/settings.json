@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "pipecat-skills": {
+      "source": {
+        "source": "github",
+        "repo": "pipecat-ai/skills"
+      }
+    }
+  }
+}

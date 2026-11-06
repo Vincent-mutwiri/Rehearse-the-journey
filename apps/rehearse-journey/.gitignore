@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Env — never commit secrets
+.env
+
+# uv lockfiles (commit these in a real project; skip for demo)
+uv.lock
+
+# Node
+node_modules/
+dist/
+.vite/

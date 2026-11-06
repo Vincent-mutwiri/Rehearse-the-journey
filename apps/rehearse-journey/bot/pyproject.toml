@@ -1,0 +1,23 @@
+[project]
+name = "rehearse-journey-bot"
+version = "0.1.0"
+description = "Receptionist Joy voice bot — Rehearse the Journey demo (Pipecat)"
+requires-python = ">=3.11"
+dependencies = [
+    # silero dropped for the demo — OpenAI STT does its own endpointing,
+    # and the silero extra pulls torch (~800MB) which is too slow on demo-eve.
+    # Re-add silero post-hackathon if server-side VAD is needed.
+    "pipecat-ai[openai,webrtc,runner]>=1.15.0",
+    "python-dotenv>=1.0",
+    "loguru>=0.7",
+]
+
+[project.optional-dependencies]
+# Switch to this if using Gemini Live: uv sync --extra gemini
+gemini = [
+    "pipecat-ai[google,webrtc,runner]>=1.15.0",
+]
+
+[tool.uv]
+# Extend timeout for large package downloads
+# UV_HTTP_TIMEOUT=120 uv sync

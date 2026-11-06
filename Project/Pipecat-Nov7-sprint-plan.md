@@ -144,7 +144,28 @@ Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before**
 
 ---
 
-## 7. Immediate start (do this now)
+## 7. Deployment & cost (so the team has it straight)
+
+**Nov 7 demo: run locally — $0.** No cloud needed. The Pipecat bot runs on the demo laptop (`uv run bot.py` → `localhost:7860`); the React client talks to it over localhost. Judges watch the co-designer drive it on the machine. No cloud account, no auth, no network flakiness.
+
+**The Vercel split (for the write-up):** the React frontend is pure static assets and can go to Vercel. **The Pipecat bot cannot** — it's a long-running Python process that holds a WebSocket/WebRTC session open for the whole voice exchange (minutes). Vercel is serverless and kills functions in ~10s (Hobby) / up to ~60–300s (Pro); a voice session dies mid-sentence. This is a fundamental shape mismatch, not a config tweak.
+
+**v1.1 (post-hackathon, if a live URL is wanted):**
+
+| Layer | Hosts where | Cost |
+|---|---|---|
+| React frontend | Vercel | Free |
+| Pipecat bot | Pipecat Cloud (Daily.co), `agent-1x` | **$0.01/min** active |
+| Daily WebRTC transport (voice) | included | **Free** for 1:1 sessions |
+| STT/LLM/TTS inference | your providers (BYOK — hub Gemini key) | billed by the provider |
+
+Pipecat framework is BSD-2 open source and free to self-host; **Pipecat Cloud has no published free hosting tier** — it's pay-per-minute usage with a $0 entry (no monthly minimum). Set `max-agents` as a spend cap. At hackathon-project scale (low traffic), that's pennies per session — effectively free; cost only matters at real volume. Self-hosted (Fly.io / Modal / Render / Railway) is the open-infra alternative and avoids per-minute hosting, at the cost of running the container yourself.
+
+**For the demo plan above, none of this matters yet — S0 runs locally and that's the demo.**
+
+---
+
+## 8. Immediate start (do this now)
 
 ```bash
 # 1. uv (if not installed)

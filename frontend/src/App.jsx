@@ -189,6 +189,40 @@ const levels = [
   },
 ];
 
+const speakerNames = {
+  hospital: 'Receptionist Joy',
+  matatu: 'Conductor Otieno',
+  government: 'Customer Officer Wanjiku',
+  directions: 'Passerby Maina',
+};
+
+const conversationOpenings = {
+  hospital: {
+    1: ['Good morning. Welcome to Nairobi Hospital. How can I help you today?', ['I have an appointment.', 'I am visiting Dr. Kamau.', 'Where is the registration desk?']],
+    2: ['Habari, welcome. Are you here for a scheduled clinic appointment or walk-in consultation?', ['I have a scheduled clinic appointment.', 'I need a walk-in consultation.', "I'm not sure which one."]],
+    3: ["Good morning. I see your file here, but Dr. Otieno's consultation room has just moved to Wing C on the second floor.", ['How do I get to Wing C?', 'Is there an elevator?', 'Will my appointment time change?']],
+    4: ['Good morning. Welcome to Nairobi Hospital. Please let me know who you are checking in for.', ['I am checking in for myself.', 'I have an appointment with Dr. Kamau.']],
+  },
+  matatu: {
+    1: ['Sasa! Westlands direct. One seat left at the front. Are you boarding?', ['Yes, how much is the fare?', 'Does this matatu pass Safaricom house?', 'No, I need another stage.']],
+    2: ['Nairobi CBD, Commercial! Where are you alighting along the highway?', ['I am alighting at Museum Hill.', 'I am going all the way to Commercial.', 'Does this bus stop at Ngara?']],
+    3: ['Board quickly, boss! But just a heads up: due to roadworks on Uhuru Highway, we are diverting via Riverside.', ['Does the diversion still reach Westlands?', 'How long will the diversion take?', 'I might need to take another vehicle.']],
+    4: ['Commercial! Two passengers needed. Step inside brother!', ['Is this vehicle full?', 'How much to town?']],
+  },
+  government: {
+    1: ['Welcome to Huduma Centre. Which public service are you looking to receive today?', ['I need to renew my National ID.', 'I need a certificate of good conduct.', 'I need help finding the right desk.']],
+    2: ['Good afternoon. Please state the service you require and whether you made an eCitizen booking.', ['I have an eCitizen booking invoice.', "I haven't booked online yet.", 'Could you explain the process?']],
+    3: ['Welcome. Our automated queuing system is temporarily undergoing maintenance, so we are calling names manually.', ["How will I know when it's my turn?", 'Where should I wait?', 'Is the wait time longer?']],
+    4: ['Good morning. Please check in with your documents.', ['Good morning, I have my papers here.', 'I need assistance with my form.']],
+  },
+  directions: {
+    1: ["Habari! You look like you're searching for something. Which building are you trying to find?", ['I am looking for the National Archives.', 'Where is Kencom House?', 'I am trying to find Moi Avenue.']],
+    2: ['Hello there. Can I help point you in the right direction?', ['Yes please, I am looking for the post office.', 'How do I get to Kenyatta Avenue?', 'Is the supermarket nearby?']],
+    3: ['Hello! If you are heading towards City Hall, please note that the main road is closed for a public marathon event.', ['Which alternative walking path is open?', 'Can I walk through the parliament gardens?', 'How do I get around it?']],
+    4: ['Hello! Are you looking for the bus stop or the train terminal?', ['I am looking for the train terminal.', 'I am looking for the bus station.']],
+  },
+};
+
 function DifficultyScreen({ scenario, onBack, onSelect }) {
   return (
     <section id="screen-difficulty" className="screen" aria-labelledby="difficulty-title">
@@ -218,6 +252,89 @@ function DifficultyScreen({ scenario, onBack, onSelect }) {
   );
 }
 
+function ConversationScreen({ scenario, level, onChangeLevel, onEnd }) {
+  const [transcript, setTranscript] = useState('');
+  const [paused, setPaused] = useState(false);
+  const [status, setStatus] = useState('Tap microphone below to respond');
+  const [opening, hints] = conversationOpenings[scenario.key][level];
+  const levelTitle = levels.find((item) => item.number === level)?.title ?? 'Easy Start';
+
+  const focusForTypedFallback = () => {
+    document.getElementById('user-speech-input')?.focus();
+    setStatus('Please type your response in the box below.');
+  };
+
+  return (
+    <section id="screen-conversation" className="screen" aria-labelledby="conversation-header-info">
+      <div className="card conversation-hud">
+        <div className="hud-inner">
+          <div id="conversation-header-info" className="hud-badges">
+            <span className="badge badge-teal">{scenario.title}</span>
+            <span className="badge badge-red">Level {level}: {levelTitle}</span>
+          </div>
+          <div className="hud-actions">
+            <button type="button" className="btn btn-white btn-compact" onClick={onChangeLevel}>Change Level</button>
+            <button type="button" className="btn btn-red btn-compact" onClick={onEnd}>End Practice 🛑</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="conversation-stage">
+        <div className="dialogue-card">
+          <Mascot />
+          <div className="speaker-meta">
+            <div>
+              <span className="helper-text speaker-label">Speaking Now:</span>
+              <span className="badge badge-black speaker-badge">{speakerNames[scenario.key]}</span>
+            </div>
+            <button type="button" className="btn btn-white btn-compact" aria-label="Repeat what the companion just said aloud">
+              🔊 Repeat Message
+            </button>
+          </div>
+          <div className="ai-speech-bubble" tabIndex="0" aria-live="polite">&quot;{opening}&quot;</div>
+          <div className="status-strip" role="status">
+            <span className="status-dot" />
+            <span>{paused ? 'Conversation paused. Take your time.' : status}</span>
+          </div>
+          <div className="hints-container">
+            <div className="hints-heading">
+              <span className="hints-title">💡 Suggested ideas to say:</span>
+              <span className="helper-text">(Tap any to populate input)</span>
+            </div>
+            <div className="hints-list">
+              {hints.map((hint) => (
+                <button type="button" className="hint-chip" key={hint} onClick={() => setTranscript(hint)}>{hint}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mic-button-wrapper">
+          <button type="button" className="btn btn-teal btn-mic" onClick={focusForTypedFallback}>
+            <span aria-hidden="true">🎙️</span><span>Tap to Speak</span>
+          </button>
+          <p className="helper-text mic-subtext">Take your time. There is no rush or time limit.</p>
+        </div>
+
+        <div className="transcript-box">
+          <label htmlFor="user-speech-input">Your Spoken Response (You can review, edit or type directly):</label>
+          <textarea id="user-speech-input" className="transcript-input" value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Your words will appear here as you speak, or you can type here anytime..." />
+          <div className="transcript-actions">
+            <button type="button" className="btn btn-white" onClick={() => setTranscript('')}>Clear Text</button>
+            <button type="button" className="btn btn-teal" onClick={() => setStatus(transcript.trim() ? 'Preparing a response...' : 'Please speak into the microphone or type a reply first.')}>Send Response 💬</button>
+          </div>
+        </div>
+
+        <div className="action-controls-grid">
+          <button type="button" className={`btn ${paused ? 'btn-teal' : 'btn-white'}`} onClick={() => setPaused((value) => !value)}>{paused ? '▶️ Resume Conversation' : '⏸️ Pause Conversation'}</button>
+          <button type="button" className="btn btn-white" onClick={() => setTranscript('')}>Restart Scenario</button>
+          <button type="button" className="btn btn-red" onClick={onEnd}>Finish / Exit</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState('welcome');
   const [selectedScenario, setSelectedScenario] = useState('hospital');
@@ -231,6 +348,7 @@ export default function App() {
 
   const selectLevel = (levelNumber) => {
     setSelectedLevel(levelNumber);
+    setScreen('conversation');
   };
 
   return (
@@ -249,6 +367,14 @@ export default function App() {
             scenario={selectedScenarioData}
             onBack={() => setScreen('scenarios')}
             onSelect={selectLevel}
+          />
+        )}
+        {screen === 'conversation' && (
+          <ConversationScreen
+            scenario={selectedScenarioData}
+            level={selectedLevel}
+            onChangeLevel={() => setScreen('difficulty')}
+            onEnd={() => setScreen('difficulty')}
           />
         )}
       </main>

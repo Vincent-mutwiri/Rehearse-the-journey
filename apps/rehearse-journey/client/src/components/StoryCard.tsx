@@ -21,8 +21,13 @@ export default function StoryCard({ story, onClose }: StoryCardProps) {
     setIndex(0)
   }, [story.id])
 
-  const slide = story.slides[Math.min(index, story.slides.length - 1)]
-  const last = index >= story.slides.length - 1
+  // Do not show fictional maps. A map slide is only useful when the bot has
+  // supplied verified route data; otherwise the story ends with its written
+  // practice guidance.
+  const slides = story.route ? story.slides : story.slides.filter(s => s.id !== 'map')
+  const safeIndex = Math.min(index, Math.max(0, slides.length - 1))
+  const slide = slides[safeIndex]
+  const last = safeIndex >= slides.length - 1
 
   return (
     <section className="story-card" aria-label={`Story: ${story.title}`}>
@@ -74,7 +79,7 @@ export default function StoryCard({ story, onClose }: StoryCardProps) {
 
       <footer className="story-card-footer">
         <div className="story-card-progress" aria-hidden="true">
-          {story.slides.map((s, i) => (
+          {slides.map((s, i) => (
             <span key={s.id} className={`story-card-dot${i === index ? ' is-active' : ''}`} />
           ))}
         </div>
@@ -83,7 +88,7 @@ export default function StoryCard({ story, onClose }: StoryCardProps) {
             type="button"
             className="story-card-nav-btn"
             onClick={() => setIndex(i => Math.max(0, i - 1))}
-            disabled={index === 0}
+            disabled={safeIndex === 0}
           >
             <ChevronLeft aria-hidden="true" />
             <span>Back</span>

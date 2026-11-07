@@ -21,6 +21,7 @@ from multi_agent import PERSONAS, MultiAgentBus
 from providers import FallbackChainCoordinator, ProviderRegistry
 from scenario import JOY_SYSTEM_PROMPT, get_level, level_prompt
 from vision import VISION_SYSTEM_PROMPT
+from clarification import ClarificationPractice
 
 load_dotenv()
 logger.remove()
@@ -109,6 +110,7 @@ async def bot(runner_args):
     camera_enabled = os.getenv("ENABLE_CAMERA_STREAM", "0").strip() == "1"
 
     flow_engine = FlowEngine(scenario_id=scenario_id, level=level, base_prompt=JOY_SYSTEM_PROMPT)
+    clarification = ClarificationPractice()
     bus = MultiAgentBus(active_speaker_id=flow_engine.flow.primary_persona)
     fallback_coordinator = FallbackChainCoordinator(
         audio_preference=os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0"
@@ -211,7 +213,7 @@ async def bot(runner_args):
     selected_level = None
     level_timeout_task = None
 
-    async def start_selected_level(level_id, client_message=None):
+    async def start_selected_level(level_id, client_message=None, clarification_settings=None):
         """Validate the client choice, configure the prompt, then greet once."""
         nonlocal greeted, selected_level
         try:
@@ -224,7 +226,9 @@ async def bot(runner_args):
 
         # One model is intentionally used for all levels. The explicit prompt
         # and speaker limit provide controlled multi-character simulation.
+        clarification.configure(clarification_settings or {})
         llm.append_system_instruction(level_prompt(selected_level))
+        llm.append_system_instruction(clarification.prompt_instruction())
         logger.info(
             "Hospital level {} selected: {} (people={}, max_active_speakers={})",
             selected_level.id,
@@ -238,6 +242,7 @@ async def bot(runner_args):
                 "name": selected_level.name,
                 "characters": list(selected_level.characters),
                 "max_active_speakers": selected_level.max_active_speakers,
+                "clarificationPractice": clarification.snapshot(),
             })
         if greeted:
             return
@@ -269,7 +274,32 @@ async def bot(runner_args):
     async def on_client_message(message):
         if message.type == "set-level":
             data = message.data if isinstance(message.data, dict) else {}
-            await start_selected_level(data.get("level_id"), message)
+            await start_selected_level(
+                data.get("level_id"),
+                message,
+                data.get("clarificationPractice"),
+            )
+        elif message.type == "send-text" and clarification.enabled:
+            data = message.data if isinstance(message.data, dict) else {}
+            content = data.get("content", "")
+            if isinstance(content, str):
+                clarification_result = clarification.handle_user_message(content)
+                if clarification_result.get("is_clarification"):
+                    llm.append_system_instruction(
+                        "The user is asking for clarification. Answer with this exact "
+                        f"specific meaning, without introducing a new ambiguity: "
+                        f"{clarification_result['specific_instruction']}"
+                    )
+                else:
+                    scheduled = clarification.next_instruction()
+                    if scheduled and "vague_instruction" in scheduled:
+                        clarification.record_delivered()
+                        llm.append_system_instruction(
+                            "For the next ordinary, non-safety direction, use this "
+                            f"mildly vague wording: {scheduled['vague_instruction']}. "
+                            f"Its exact meaning is: {scheduled['specific_instruction']}. "
+                            "If the user asks what you mean, give the exact meaning."
+                        )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

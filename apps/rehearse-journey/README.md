@@ -29,17 +29,18 @@ pnpm dev               # serves on http://localhost:3000
 
 Open **http://localhost:3000** in Chrome.
 
-### Calm Me
+### Decompress
 
-The persistent **Calm Me** button is in the upper-right corner of the app.
-It opens an independent calming session that reads the exact predefined
-opening and Kenyan Swahili/Sheng affirmations aloud using the browser's native
-speech synthesis. It does not request the microphone, listen, record, or send
-conversation audio to Pipecat. If a rehearsal is active, opening Calm Me pauses
-that rehearsal; it never resumes it automatically.
+The persistent **Decompress** button is in the upper-right corner of the app.
+It opens an independent session that speaks the exact predefined Kenyan
+Swahili/Sheng affirmations, followed by a slow count from Moja to Tano.
+It does not request the microphone, listen, record, or send conversation audio
+to Pipecat. If a rehearsal is active, opening Decompress pauses that rehearsal;
+it never resumes it automatically.
 
-Use the overlay to pause or continue voice, adjust volume and speed, repeat the
-sequence, or end the session. Voice availability and Swahili pronunciation
+Use **Next** to move to the next affirmation after the count finishes; after the
+third affirmation, Next returns to the first. **End Session** cancels speech
+immediately. There is no automatic advancement. Voice availability and Swahili pronunciation
 depend on the voices installed by the browser/operating system. When speech
 synthesis is unavailable, the affirmations remain readable and can be advanced
 manually.
@@ -52,6 +53,24 @@ Pause disconnects and stops the local and remote audio tracks. Reconnect starts
 a new exchange with the mic off; it does not restore the previous bot context.
 Hospital Reception now offers five levels; changing level stops the current
 session before returning to the selection screen.
+
+### Ask for Clarity
+
+On the Hospital Reception setup card, turn on **Ask for Clarity** to practise
+asking for missing details when an ordinary direction is unclear. It is off by
+default and does not change the selected difficulty level. When enabled, choose
+20% (a little), 40% (regular, the default), or 60% (more) practice.
+
+The setting is sent with the existing `set-level` session message and validated
+inside a session-local Python controller. The controller preserves the specific
+meaning of a planned direction and recognises natural English, Swahili, and
+mixed-language clarification questions. The optional **Need a hint?** control
+suggests one short question; it does not reveal the answer automatically.
+When the session ends, the reflection reports opportunities, questions, and
+resolved ambiguities without scores or grades. The current Gemini text path
+uses the controller's safety rules and scheduling guidance as model context;
+exact delivered percentages remain approximate until response-level Flow/tool
+instrumentation is added.
 
 ## Hospital Reception levels
 

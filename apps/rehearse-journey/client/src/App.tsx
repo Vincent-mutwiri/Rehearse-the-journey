@@ -57,6 +57,23 @@ const SCENARIOS = [
 
 interface Turn { speaker: string; text: string; id: number }
 
+type ClarificationPercentage = 20 | 40 | 60
+
+const CLARIFICATION_QUESTION = /\b(what do you mean|be specific|which one|which table|which floor|which room|where exactly|where should i go|explain|more detail|didn'?t understand|sijaelewa|unamaanisha nini|eleza vizuri|ni wapi hasa|ni meza gani|hiyo .* gani)\b/i
+const CLARIFICATION_HINTS = [
+  { match: /table/i, hint: 'Which table should I use?' },
+  { match: /upstairs|up/i, hint: 'Which floor and room should I go to?' },
+  { match: /wait|there|over there/i, hint: 'Where exactly should I wait?' },
+]
+
+function isClarificationQuestion(text: string) {
+  return CLARIFICATION_QUESTION.test(text)
+}
+
+function clarificationHintFor(text: string) {
+  return CLARIFICATION_HINTS.find(({ match }) => match.test(text))?.hint ?? 'Could you explain that more specifically?'
+}
+
 // Rotating tips: this element advances on a timer, so the toolkit's
 // stop-auto-advance adapter has something real to hold still.
 const TIPS = [
@@ -80,6 +97,13 @@ function RehearsalView() {
   const client = usePipecatClient()
   const [state, setState] = useState<RolePlayState>('idle')
   const [selectedLevel, setSelectedLevel] = useState<LevelId>('1')
+  const [clarityEnabled, setClarityEnabled] = useState(false)
+  const [clarityPercentage, setClarityPercentage] = useState<ClarificationPercentage>(40)
+  const [clarificationHint, setClarificationHint] = useState('')
+  const [showClarificationHint, setShowClarificationHint] = useState(false)
+  const [clarificationOpportunities, setClarificationOpportunities] = useState(0)
+  const [clarificationQuestions, setClarificationQuestions] = useState(0)
+  const [clarificationsResolved, setClarificationsResolved] = useState(0)
   const [turns, setTurns] = useState<Turn[]>([])
   const [typedInput, setTypedInput] = useState('')
   const [error, setError] = useState('')
@@ -171,9 +195,17 @@ function RehearsalView() {
     setInterimSpoken('')
     setJoyThinking(true)
     void client.sendText(text, { run_immediately: true, audio_response: true })
-      .then(() => addTurn('You', text))
+      .then(() => {
+        if (clarityEnabled && isClarificationQuestion(text)) {
+          setClarificationQuestions((count) => count + 1)
+          if (clarificationHint) setClarificationsResolved((count) => count + 1)
+          setClarificationHint('')
+          setShowClarificationHint(false)
+        }
+        addTurn('You', text)
+      })
       .catch(() => setError('Your speech could not be sent. Try again or type below.'))
-  }, [client, state, addTurn])
+  }, [client, state, addTurn, clarityEnabled, clarificationHint])
   const browserSTT = useBrowserSTT({ onFinal: sendSpoken })
 
   // Show interim STT text so the person knows the mic is hearing them.
@@ -186,6 +218,11 @@ function RehearsalView() {
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
     if (active.current && data.text.trim()) {
       const parsed = parseSpeaker(data.text)
+      if (clarityEnabled && /\b(put .* table|go upstairs|wait over there|over there)\b/i.test(parsed.text)) {
+        setClarificationOpportunities((count) => count + 1)
+        setClarificationHint(clarificationHintFor(parsed.text))
+        setShowClarificationHint(false)
+      }
       addTurn(parsed.speaker, parsed.text)
       setJoyThinking(false)  // Joy's first word arrived — no longer "thinking"
       setNod(n => n + 1)     // Joy's turn complete → sage nod
@@ -258,6 +295,11 @@ function RehearsalView() {
     const current = ++generation.current
     active.current = true
     setError('')
+    setClarificationHint('')
+    setShowClarificationHint(false)
+    setClarificationOpportunities(0)
+    setClarificationQuestions(0)
+    setClarificationsResolved(0)
     setMicEnabled(false)
     client.enableMic(false)
     setState('connecting')
@@ -269,7 +311,13 @@ function RehearsalView() {
       }
       // Tell the backend which validated hospital configuration to use before
       // it emits the opening greeting.
-      client.sendClientMessage('set-level', { level_id: selectedLevel })
+      client.sendClientMessage('set-level', {
+        level_id: selectedLevel,
+        clarificationPractice: {
+          enabled: clarityEnabled,
+          ambiguityPercentage: clarityPercentage,
+        },
+      })
       setState('listening')
     } catch {
       if (current === generation.current) {
@@ -310,8 +358,8 @@ function RehearsalView() {
     }
   }, [client])
 
-  // Calm Me is independent of Pipecat, but an active rehearsal must yield its
-  // audio. It stays paused after Calm Me closes; resuming remains explicit.
+  // Decompress is independent of Pipecat, but an active rehearsal must yield its
+  // audio. It stays paused after Decompress closes; resuming remains explicit.
   useEffect(() => {
     const pauseForCalmMe = () => {
       if (active.current) void stopSession('paused')
@@ -340,6 +388,12 @@ function RehearsalView() {
     try {
       await client.sendText(text, { run_immediately: true, audio_response: true })
       if (active.current && current === generation.current) {
+        if (clarityEnabled && isClarificationQuestion(text)) {
+          setClarificationQuestions((count) => count + 1)
+          if (clarificationHint) setClarificationsResolved((count) => count + 1)
+          setClarificationHint('')
+          setShowClarificationHint(false)
+        }
         addTurn('You', text)
         setTypedInput('')
       }
@@ -351,7 +405,7 @@ function RehearsalView() {
       sendingRef.current = false
       setSending(false)
     }
-  }, [client, typedInput, addTurn, state])
+  }, [client, typedInput, addTurn, state, clarityEnabled, clarificationHint])
 
   const sendPracticePrompt = useCallback(async (prompt: string) => {
     if (!client || !active.current || sendingRef.current ||
@@ -499,6 +553,47 @@ function RehearsalView() {
                   </button>
                 ))}
               </div>
+              <section className="clarity-practice" aria-labelledby="clarity-title">
+                <div className="clarity-heading">
+                  <div>
+                    <h3 id="clarity-title">Ask for Clarity</h3>
+                    <p>Practise asking specific questions when someone gives unclear instructions.</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={clarityEnabled}
+                    aria-label={`Ask for Clarity. ${clarityEnabled ? 'On' : 'Off'}`}
+                    className={`clarity-switch${clarityEnabled ? ' is-on' : ''}`}
+                    onClick={() => setClarityEnabled((enabled) => !enabled)}
+                  >
+                    <span className="clarity-switch-thumb" aria-hidden="true" />
+                    <span>{clarityEnabled ? 'ON' : 'OFF'}</span>
+                  </button>
+                </div>
+                {clarityEnabled && (
+                  <fieldset className="clarity-options">
+                    <legend>How often should instructions be unclear?</legend>
+                    {([
+                      [20, 'A little practice'],
+                      [40, 'Regular practice'],
+                      [60, 'More practice'],
+                    ] as const).map(([percentage, label]) => (
+                      <label key={percentage}>
+                        <input
+                          type="radio"
+                          name="clarity-percentage"
+                          value={percentage}
+                          checked={clarityPercentage === percentage}
+                          onChange={() => setClarityPercentage(percentage)}
+                        />
+                        <span><strong>{percentage}%</strong> {label}</span>
+                      </label>
+                    ))}
+                    <p className="clarity-note">About {clarityPercentage}% of suitable instructions will be intentionally unclear.</p>
+                  </fieldset>
+                )}
+              </section>
               <Button variant="scenario" onClick={handleStart} className="scenario-start">
                 <span className="scenario-action">Start Level {selectedLevel} practice <Play aria-hidden="true" data-icon="inline-end" /></span>
               </Button>
@@ -654,18 +749,38 @@ function RehearsalView() {
         {state === 'connecting' && <p>⏳ Connecting to Joy…</p>}
         {state === 'paused' && <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>}
         {state === 'ended' && (
-          <p>
-            Session ended.{' '}
-            <Button
-              size="sm"
-              disabled={stopping}
-              onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}
-            >
-              Start again
-            </Button>
-          </p>
+          <>
+            <p>
+              Session ended.{' '}
+              <Button
+                size="sm"
+                disabled={stopping}
+                onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}
+              >
+                Start again
+              </Button>
+            </p>
+            {clarityEnabled && (
+              <section className="clarity-reflection" aria-labelledby="reflection-title">
+                <h3 id="reflection-title">Your Practice Reflection</h3>
+                <p>You had {clarificationOpportunities} clarification {clarificationOpportunities === 1 ? 'opportunity' : 'opportunities'}, asked for more information {clarificationQuestions} {clarificationQuestions === 1 ? 'time' : 'times'}, and resolved {clarificationsResolved}.</p>
+                <p>Asking questions helped make the instructions clearer.</p>
+              </section>
+            )}
+          </>
         )}
       </div>
+      {isConnected && clarityEnabled && clarificationHint && (
+        <aside className="clarification-hint" aria-live="polite">
+          {!showClarificationHint ? (
+            <Button variant="outline" className="rounded-full" onClick={() => setShowClarificationHint(true)}>
+              Need a hint?
+            </Button>
+          ) : (
+            <p><strong>Try asking:</strong> {clarificationHint}</p>
+          )}
+        </aside>
+      )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       {/* ── Transcript ── */}

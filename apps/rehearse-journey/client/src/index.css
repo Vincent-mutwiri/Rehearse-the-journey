@@ -195,6 +195,24 @@ button { min-height: 44px; }
 .welcome-footer svg { width: 14px; height: 14px; flex-shrink: 0; }
 .welcome-footer p { margin: 0; }
 .welcome-error { margin-top: 16px; color: #9b422a; font-size: 13px; }
+.clarity-practice { margin-top: 4px; padding: 18px; border: 1px solid color-mix(in oklab, var(--sage) 38%, var(--ink)); border-radius: 16px; background: color-mix(in oklab, var(--sage) 10%, var(--cream)); }
+.clarity-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.clarity-heading h3 { margin: 0; font-size: 16px; font-weight: 650; }
+.clarity-heading p { max-width: 42ch; margin: 5px 0 0; color: #655e76; font-size: 13px; line-height: 1.5; }
+.clarity-switch { display: inline-flex; align-items: center; gap: 8px; min-width: 76px; min-height: 44px; padding: 5px 10px 5px 6px; border: 1px solid var(--ink); border-radius: 9999px; background: var(--cream); color: var(--ink); font-size: 12px; font-weight: 700; cursor: pointer; }
+.clarity-switch-thumb { width: 26px; height: 26px; border-radius: 50%; background: var(--mist); transition: transform .15s ease, background .15s ease; }
+.clarity-switch.is-on { background: var(--lavender); }
+.clarity-switch.is-on .clarity-switch-thumb { background: var(--ink); transform: translateX(20px); }
+.clarity-options { display: grid; gap: 8px; margin: 18px 0 0; padding: 14px; border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent); border-radius: 12px; }
+.clarity-options legend { padding: 0 4px; font-size: 13px; font-weight: 650; }
+.clarity-options label { display: flex; align-items: center; gap: 9px; min-height: 36px; font-size: 13px; cursor: pointer; }
+.clarity-options input { accent-color: var(--lavender); }
+.clarity-note { margin: 4px 0 0; color: #655e76; font-size: 12px; }
+.clarification-hint { padding: 12px 16px; border: 1px solid color-mix(in oklab, var(--peach) 60%, var(--ink)); border-radius: 16px; background: color-mix(in oklab, var(--peach) 30%, var(--cream)); font-size: 13px; }
+.clarification-hint p { margin: 0; }
+.clarity-reflection { margin-top: 14px; padding: 16px; border: 1px solid color-mix(in oklab, var(--sage) 45%, var(--ink)); border-radius: 16px; background: color-mix(in oklab, var(--sage) 12%, var(--cream)); }
+.clarity-reflection h3 { margin: 0 0 8px; font-size: 16px; }
+.clarity-reflection p { margin: 5px 0 0; font-size: 13px; }
 .rehearsal-shell { margin: 0 auto; padding: 28px 24px; }
 @media (min-width: 1440px) { .welcome-shell { padding-top: 36px; } .welcome-hero { padding-top: 44px; padding-bottom: 38px; } }
 @media (max-width: 700px) {
@@ -217,6 +235,8 @@ button { min-height: 44px; }
   .scenario-title { font-size: 21px; }
   .scenario-preview { min-height: 55px; }
   .welcome-footer { align-items: flex-start; justify-content: flex-start; margin-top: 18px; }
+  .clarity-heading { flex-direction: column; }
+  .clarity-switch { align-self: flex-start; }
 }
 @media (max-width: 430px) {
   .welcome-hero { grid-template-columns: 1fr 125px; gap: 8px; }
@@ -229,7 +249,7 @@ button { min-height: 44px; }
   .scenario-coming { font-size: 9px; }
 }
 
-/* Calm Me: persistent, reassuring output-only support. */
+/* Decompress: persistent, reassuring output-only support. */
 .calm-me-button {
   position: fixed;
   z-index: 30;
@@ -279,6 +299,10 @@ button { min-height: 44px; }
 .calm-me-intro, .calm-me-support { color: #655e76; }
 .calm-me-intro { margin: 20px 0 0; }
 .calm-me-current { min-height: 2.6em; margin: 30px 0 16px; font-size: clamp(26px, 5vw, 42px); font-weight: 600; line-height: 1.18; letter-spacing: -1px; }
+.calm-me-progress { margin: 26px 0 -18px; color: #655e76; font-size: 13px; font-weight: 650; }
+.calm-me-counts { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin: 24px 0 18px; }
+.calm-me-counts span { min-width: 58px; padding: 9px 10px; border: 1px solid var(--mist); border-radius: 9999px; background: #fffdfa; text-align: center; font-size: 14px; }
+.calm-me-counts span.is-current { border-color: var(--lavender); background: var(--lavender); font-weight: 700; }
 .calm-me-support { margin: 0; font-size: 14px; }
 .calm-me-warning { padding: 12px 14px; border-left: 4px solid var(--peach); background: #fffdfa; font-size: 13px; }
 .calm-me-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }

@@ -35,16 +35,37 @@ to speak. Both input methods use the same bot conversation.
 
 Pause disconnects and stops the local and remote audio tracks. Reconnect starts
 a new exchange with the mic off; it does not restore the previous bot context.
-Scenario selection and advance/exit approval controls are still Sprint 2 work.
+Hospital Reception now offers five levels; changing level stops the current
+session before returning to the selection screen.
+
+## Hospital Reception levels
+
+| Level | Name | People | Behaviour |
+|---|---|---:|---|
+| 1 | Easy Start | 1 | Joy, short predictable exchange |
+| 2 | Everyday Conversation | 1 | Joy, longer follow-up questions |
+| 3 | Multiple People | 2 | Joy and Amani, brief turn changes |
+| 4 | Busy Environment | 3–4 | Joy, Amani, Nurse Wanjiku, Attendant |
+| 5 | Unpredictable Environment | Variable | Controlled changes with up to four speakers |
+
+The client sends a validated `set-level` RTVI message before the greeting. The
+backend validates the ID and applies the corresponding prompt configuration.
+Levels 3–5 use one Pipecat LLM with explicit speaker orchestration; they are not
+represented as independent AI agents. Only one simulated speaker is allowed per
+response and background audio is off by default. Pause, Resume, Repeat/Help,
+typed input, microphone control and Exit remain available across levels.
 
 ## Sprint 1 verification
 
-The Level 1 reception sequence is prompt-driven, not a Pipecat Flows state machine.
+The five reception levels are prompt-configured, not yet a Pipecat Flows state
+machine or independent multi-agent handoff system.
 
 | Check | Status |
 |---|---|
 | TypeScript + production build | Passed |
 | Python syntax | Passed |
+| Five-level configuration tests | Passed |
+| Level selection TypeScript/build | Passed |
 | Browser UI with mocked SDK connection | Passed |
 | Provider-backed typed reply | Not yet verified |
 | Spoken reply on demo-machine mic | Not yet verified |

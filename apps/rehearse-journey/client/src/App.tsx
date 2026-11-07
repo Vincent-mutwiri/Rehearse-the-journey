@@ -29,6 +29,7 @@ import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { useBrowserSTT } from '@/lib/useBrowserSTT'
 import { Button } from '@/components/ui/button'
 import { Sprout, Cross, BusFront, Landmark, Signpost, MessageCircle, MicOff, Pause, Play } from 'lucide-react'
+import { HOSPITAL_LEVELS, getHospitalLevel, type LevelId } from './levels'
 import {
   ReadAloud,
   StopAutoAdvance,
@@ -46,7 +47,6 @@ type RolePlayState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused'
 // Only Hospital Level 1 is live; the rest are honest previews, not dead buttons.
 
 const SCENARIOS = [
-  { name: 'Hospital Reception', level: 'Level 1 · Easy Start', live: true, icon: Cross },
   { name: 'Matatu Stage', live: false, icon: BusFront },
   { name: 'Government Service', live: false, icon: Landmark },
   { name: 'Asking for Directions', live: false, icon: Signpost },
@@ -54,7 +54,7 @@ const SCENARIOS = [
 
 // ── Transcript entry ─────────────────────────────────────────────────────────
 
-interface Turn { speaker: 'Joy' | 'You'; text: string; id: number }
+interface Turn { speaker: string; text: string; id: number }
 
 // Rotating tips: this element advances on a timer, so the toolkit's
 // stop-auto-advance adapter has something real to hold still.
@@ -78,6 +78,7 @@ const STATUS_NARRATION: Record<RolePlayState, string> = {
 function RehearsalView() {
   const client = usePipecatClient()
   const [state, setState] = useState<RolePlayState>('idle')
+  const [selectedLevel, setSelectedLevel] = useState<LevelId>('1')
   const [turns, setTurns] = useState<Turn[]>([])
   const [typedInput, setTypedInput] = useState('')
   const [error, setError] = useState('')
@@ -145,9 +146,14 @@ function RehearsalView() {
     return () => clearInterval(id)
   }, [readAloud])
 
-  const addTurn = useCallback((speaker: 'Joy' | 'You', text: string) => {
+  const addTurn = useCallback((speaker: string, text: string) => {
     setTurns(prev => [...prev, { speaker, text, id: turnId.current++ }])
     if (speaker === 'You') setNod(n => n + 1)
+  }, [])
+
+  const parseSpeaker = useCallback((text: string) => {
+    const match = text.match(/^(Joy|Amani|Nurse Wanjiku|Hospital Attendant|Attendant):\s*(.*)$/s)
+    return match ? { speaker: match[1], text: match[2] } : { speaker: 'Joy', text }
   }, [])
 
   // Browser STT for the gemini_text path. The Lovable proxy carries REST but
@@ -178,7 +184,8 @@ function RehearsalView() {
   // Listen for bot transcript events
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
     if (active.current && data.text.trim()) {
-      addTurn('Joy', data.text)
+      const parsed = parseSpeaker(data.text)
+      addTurn(parsed.speaker, parsed.text)
       setJoyThinking(false)  // Joy's first word arrived — no longer "thinking"
       setNod(n => n + 1)     // Joy's turn complete → sage nod
     }
@@ -259,6 +266,9 @@ function RehearsalView() {
         await client.disconnect()
         return
       }
+      // Tell the backend which validated hospital configuration to use before
+      // it emits the opening greeting.
+      client.sendClientMessage('set-level', { level_id: selectedLevel })
       setState('listening')
     } catch {
       if (current === generation.current) {
@@ -299,6 +309,14 @@ function RehearsalView() {
     }
   }, [client])
 
+  const handleChangeLevel = useCallback(async () => {
+    await stopSession('ended')
+    setTurns([])
+    setTypedInput('')
+    setError('')
+    setState('idle')
+  }, [stopSession])
+
   const handleSendText = useCallback(async () => {
     const text = typedInput.trim()
     if (!client || !active.current || sendingRef.current || !text ||
@@ -323,6 +341,24 @@ function RehearsalView() {
       setSending(false)
     }
   }, [client, typedInput, addTurn, state])
+
+  const sendPracticePrompt = useCallback(async (prompt: string) => {
+    if (!client || !active.current || sendingRef.current ||
+        (state !== 'listening' && state !== 'speaking')) return
+    sendingRef.current = true
+    setSending(true)
+    setError('')
+    setJoyThinking(true)
+    try {
+      await client.sendText(prompt, { run_immediately: true, audio_response: true })
+      addTurn('You', prompt)
+    } catch {
+      setError('That request could not be sent. Try typing instead.')
+    } finally {
+      sendingRef.current = false
+      setSending(false)
+    }
+  }, [client, state, addTurn])
 
   const handleToggleMic = () => {
     if (!client || !active.current) return
@@ -426,18 +462,39 @@ function RehearsalView() {
             <p>Choose a conversation to practice.</p>
           </div>
           <div className="scenario-layout" role="group" aria-label="Practice scenarios">
-            <Button variant="scenario" onClick={handleStart} className="scenario-start">
-              <span className="scenario-symbol"><Cross aria-hidden="true" /></span>
-              <span className="scenario-start-copy">
-                <span className="scenario-level">Level 1 · Easy start</span>
-                <span className="scenario-title">Hospital Reception</span>
-                <span className="scenario-description">Practice arriving, asking for help, and talking to a friendly receptionist.</span>
-              </span>
-              <span className="scenario-action">Start practice <Play aria-hidden="true" data-icon="inline-end" /></span>
-            </Button>
+            <div className="scenario-start flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <span className="scenario-symbol"><Cross aria-hidden="true" /></span>
+                <div>
+                  <span className="scenario-level">Hospital Reception</span>
+                  <span className="scenario-title block">Choose your level</span>
+                </div>
+              </div>
+              <div className="grid gap-3" role="list" aria-label="Hospital Reception difficulty levels">
+                {HOSPITAL_LEVELS.map(level => (
+                  <button
+                    key={level.id}
+                    type="button"
+                    aria-pressed={selectedLevel === level.id}
+                    onClick={() => setSelectedLevel(level.id)}
+                    className={'rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lavender ' +
+                      (selectedLevel === level.id ? 'border-lavender bg-lavender/25' : 'border-ink/15 bg-white/60 hover:border-lavender/60')}
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="font-semibold">Level {level.id} · {level.name}</span>
+                      <span className="text-xs font-semibold opacity-75">People: {level.people}</span>
+                    </span>
+                    <span className="mt-1 block text-sm opacity-80">{level.description}</span>
+                  </button>
+                ))}
+              </div>
+              <Button variant="scenario" onClick={handleStart} className="scenario-start">
+                <span className="scenario-action">Start Level {selectedLevel} practice <Play aria-hidden="true" data-icon="inline-end" /></span>
+              </Button>
+            </div>
             <div className="scenario-previews">
               <p className="scenario-preview-heading">More everyday journeys, coming soon</p>
-              {SCENARIOS.slice(1).map(s => (
+              {SCENARIOS.map(s => (
                 <Button key={s.name} variant="preview" disabled className="scenario-preview">
                   <span className="scenario-preview-icon"><s.icon aria-hidden="true" /></span>
                   <span>{s.name}</span>
@@ -470,8 +527,8 @@ function RehearsalView() {
           <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Rehearse the Journey</h1>
           <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs font-semibold">
             <span className="rounded-full bg-lavender/60 px-3 py-1">Hospital Reception</span>
-            <span className="rounded-full bg-peach/70 px-3 py-1">Level 1 · Easy Start</span>
-            <span className="rounded-full bg-mist px-3 py-1">Receptionist Joy</span>
+            <span className="rounded-full bg-peach/70 px-3 py-1">Level {selectedLevel} · {getHospitalLevel(selectedLevel).name}</span>
+            <span className="rounded-full bg-mist px-3 py-1">{getHospitalLevel(selectedLevel).characters.join(' · ')}</span>
           </div>
         </div>
       </section>
@@ -620,7 +677,7 @@ function RehearsalView() {
             }
           >
             <span className="text-xs font-bold uppercase tracking-wide opacity-70">
-              {t.speaker === 'Joy' ? 'Joy' : 'You'}
+              {t.speaker}
             </span>
             <p className="mt-0.5 leading-relaxed">{t.text}</p>
           </div>
@@ -687,6 +744,28 @@ function RehearsalView() {
       {/* ── Controls: always visible, never buried ── */}
       <div className="flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
         {isConnected && (
+          <>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              disabled={sending}
+              onClick={() => void sendPracticePrompt('Please repeat your last instruction slowly, using simpler words.')}
+              aria-label="Ask Joy to repeat the last instruction"
+            >
+              Repeat
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              disabled={sending}
+              onClick={() => void sendPracticePrompt('I need help. Please give me one simple example of what I can say next.')}
+              aria-label="Ask Joy for help and an example"
+            >
+              Help
+            </Button>
+          </>
+        )}
+        {isConnected && (
           <Button variant="secondary" className="rounded-full" onClick={() => void stopSession('paused')} aria-label="Pause — stops audio and microphone">
             ⏸ Pause
           </Button>
@@ -715,6 +794,16 @@ function RehearsalView() {
             aria-pressed={micEnabled}
           >
             {micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
+          </Button>
+        )}
+        {(isConnected || state === 'paused') && (
+          <Button
+            variant="outline"
+            className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+            onClick={() => void handleChangeLevel()}
+            aria-label="Change hospital rehearsal level"
+          >
+            Change level
           </Button>
         )}
       </div>

@@ -7,6 +7,7 @@
 - Whisker + Tail dev telemetry (SF.4)
 """
 
+import asyncio
 import os
 import sys
 
@@ -18,7 +19,7 @@ from flow_engine import FlowEngine
 from mode_router import EXPLORE_SYSTEM_PROMPT
 from multi_agent import PERSONAS, MultiAgentBus
 from providers import FallbackChainCoordinator, ProviderRegistry
-from scenario import JOY_SYSTEM_PROMPT
+from scenario import JOY_SYSTEM_PROMPT, get_level, level_prompt
 from vision import VISION_SYSTEM_PROMPT
 
 load_dotenv()
@@ -207,10 +208,37 @@ async def bot(runner_args):
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
     greeted = False
+    selected_level = None
+    level_timeout_task = None
 
-    @worker.rtvi.event_handler("on_client_ready")
-    async def on_client_ready(rtvi):
-        nonlocal greeted
+    async def start_selected_level(level_id, client_message=None):
+        """Validate the client choice, configure the prompt, then greet once."""
+        nonlocal greeted, selected_level
+        try:
+            selected_level = get_level(level_id)
+        except ValueError as error:
+            if client_message is not None:
+                await worker.rtvi.send_error_response(client_message, str(error))
+            logger.warning(str(error))
+            return
+
+        # One model is intentionally used for all levels. The explicit prompt
+        # and speaker limit provide controlled multi-character simulation.
+        llm.append_system_instruction(level_prompt(selected_level))
+        logger.info(
+            "Hospital level {} selected: {} (people={}, max_active_speakers={})",
+            selected_level.id,
+            selected_level.name,
+            selected_level.people,
+            selected_level.max_active_speakers,
+        )
+        if client_message is not None:
+            await worker.rtvi.send_server_response(client_message, {
+                "level_id": selected_level.id,
+                "name": selected_level.name,
+                "characters": list(selected_level.characters),
+                "max_active_speakers": selected_level.max_active_speakers,
+            })
         if greeted:
             return
         greeted = True
@@ -224,6 +252,24 @@ async def bot(runner_args):
             ),
         })
         await worker.queue_frames([LLMRunFrame()])
+
+    @worker.rtvi.event_handler("on_client_ready")
+    async def on_client_ready(rtvi):
+        # The client sends set-level immediately after connect. Do not greet
+        # before that message, otherwise the selected level would be ignored.
+        nonlocal level_timeout_task
+        if level_timeout_task is None:
+            async def default_level_after_timeout():
+                await asyncio.sleep(2.0)
+                if not greeted:
+                    await start_selected_level("1")
+            level_timeout_task = asyncio.create_task(default_level_after_timeout())
+
+    @worker.rtvi.event_handler("on_client_message")
+    async def on_client_message(message):
+        if message.type == "set-level":
+            data = message.data if isinstance(message.data, dict) else {}
+            await start_selected_level(data.get("level_id"), message)
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

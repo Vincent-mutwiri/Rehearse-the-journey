@@ -108,23 +108,25 @@ Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before**
 **Gate status:** 🟡 **Code-complete, blocked on the provider key.** Everything that's in our control is done; the gate fails on something that isn't (a billed AI key). The moment a working key lands, S0+S1 are green — no further code changes needed to hear Joy speak.
 
 ### S2 — Controller + pause/exit + selection · tonight/Sat AM · ~2 h
-- [ ] React controller owns role-play state (`idle | listening | speaking | paused | ended`). Pipecat proposes; the controller decides.
-- [ ] **Pause** aborts the Pipecat session and stops audio immediately (mute + end tracks). **Exit** ends the session. Both are DOM buttons, always visible, never buried in chat.
-- [ ] Resume is explicit — it does not auto-restart the mic.
-- [ ] Reuse the Kioo Companion scenario/level selection as React state. Show all four scenarios; only hospital Level 1 is live; the other three are labelled "preview — v1.1".
-- [ ] Minimal approval gate: "Advance to next role-play turn?" approve/deny; "Exit rehearsal?" approve/deny. Deny = stay put. (No 20-case suite — that's v1.1; test approve + deny by hand.)
-- [ ] **Gate:** Pause stops audio instantly; Exit ends; Deny leaves you put; the selection screen routes only to the live role-play.
+- [x] React controller owns role-play state (`idle | listening | speaking | paused | ended`). Pipecat proposes; the controller decides. *(verified live 06:25: connect → `listening`)*
+- [x] **Pause** aborts the Pipecat session and stops audio immediately (mute + end tracks). **Exit** ends the session. Both are DOM buttons, always visible, never buried in chat. *(verified live: Pause → `paused` + Send disabled; Exit → `ended`)*
+- [x] Resume is explicit — it does not auto-restart the mic. *(Reconnect with mic off; mic stays off)*
+- [ ] Reuse the Kioo Companion scenario/level selection as React state. Show all four scenarios; only hospital Level 1 is live; the other three are labelled "preview — v1.1". *(not built — only hospital Level 1 is shown)*
+- [ ] Minimal approval gate: "Advance to next role-play turn?" approve/deny; "Exit rehearsal?" approve/deny. Deny = stay put. (No 20-case suite — that's v1.1; test approve + deny by hand.) *(not built)*
+- [ ] **Gate:** Pause stops audio instantly; Exit ends; Deny leaves you put; the selection screen routes only to the live role-play. *(pause/exit verified; deny + selection screen unbuilt)*
 
 ### S3 — Toolkit adapters ×4 · Sat AM · ~1.5 h
-- [ ] Get the toolkit adapters usable from the scaffolded React client — import the adapter modules (`tools/adapters/`) or copy the specific files (`read-aloud.js`, `simplify-text.js`, `stop-auto-advance.js`, `motion-reducer.js` / `confirm-actions.js`) into the client `src`. Confirm the import/build path works (this is the JS/Python-bridge task).
-- [ ] Wire ≥4 adapters to explicit preference toggles, each with an **observable** effect:
-      - `read-aloud` — speaks the current step narration
-      - `simplify-text` — rewrites the step text to plain language
-      - `stop-auto-advance` — guarantees no timer-driven progression
-      - `motion-reducer` (or `confirm-actions`) — reduces animation / adds a confirm on exit
-- [   ] Verify enabling/disabling a preference never defeats Pause (adapter toggle must not restart stopped media).
+- [x] Get the toolkit adapters usable from the scaffolded React client — import the adapter modules (`tools/adapters/`) or copy the specific files (`read-aloud.js`, `simplify-text.js`, `stop-auto-advance.js`, `motion-reducer.js` / `confirm-actions.js`) into the client `src`. Confirm the import/build path works (this is the JS/Python-bridge task).
+      - Done 06:20: `client/src/toolkitAdapters.ts` imports `read-aloud.js`, `stop-auto-advance.js`, `motion-reducer.js` straight from `tools/adapters/` (Vite `server.fs.allow` added for dev; `pnpm build` clean). `simplify-text.js` needs an AI provider key the demo lacks, so a deterministic stand-in (`simplifyStepText` + `ORIGINAL_STEP_TEXT`) does the same reversible rewrite on the "What to expect" card — disclosed in code, no fake model call.
+- [x] Wire ≥4 adapters to explicit preference toggles, each with an **observable** effect:
+      - `read-aloud` — speaks the current step narration → speaks the page's own text (scenario notice + step card + status + Joy's latest turn) via `speechSynthesis`
+      - `simplify-text` — rewrites the step text to plain language → "Plainer words" toggle + "Show original" button on the step card
+      - `stop-auto-advance` — guarantees no timer-driven progression → holds still a rotating tips carousel (`tips-carousel`/`tip-slide`/`is-active`, 6 s timer)
+      - `motion-reducer` — reduces animation / adds a confirm on exit → stops the pulsing status indicator's CSS animation (verified 1.6 s → 0.001 ms → restored)
+- [x] Verify enabling/disabling a preference never defeats Pause (adapter toggle must not restart stopped media).
+      - Done: `stopSession` calls `ReadAloud.stop()`; unmount disables all adapters. `enableStopAutoAdvance()` hands AUDIO elements back to the Pipecat client (`StopAutoAdvance.pausedMedia` untracked + `play()`), so the adapter cannot still Joy's `<audio>` voice. Verified in headless Chrome: carousel holds/resumes, motion CSS toggles, simplify reverses, read-aloud speaks and stops.
 - [ ] Keyboard-only run + the co-designer's preferred AT (TalkBack/VoiceOver/Orca) on the demo device.
-- [ ] **Gate:** four observable adapter effects from explicit preferences; removal restores; keyboard + AT work.
+- [ ] **Gate:** four observable adapter effects from explicit preferences; removal restores; keyboard + AT work. (Adapter effects verified; keyboard/AT run still pending.)
 
 ### S4 — Dry-run + evidence + freeze · Sat AM · ~1.5 h
 - [ ] Co-designer dry-run on the demo machine; log ≥1 genuine toolkit issue; record what they needed help with.
@@ -197,92 +199,245 @@ Pipecat is an open-source (BSD-2-Clause) **Python framework for real-time voice,
 
 ### The sprints
 
-Each sprint maps one Pipecat capability to a concrete Rehearse-the-Journey feature. They're sequential, each building on the one before. Estimates are planning, not guarantees.
+Each sprint maps one Pipecat capability to a concrete Rehearse-the-Journey feature. They're sequential, each building on the one before. Estimates are planning, not guarantees. Sub-sprints are the smallest unit that ships something verifiable on its own — gate each one before starting the next.
+
+---
 
 #### SA — Pipecat Flows for structured role-play · ~1 week
 
 **Capability used:** Pipecat Flows (built-in state management for structured conversations).
 
-The Nov 7 demo uses a single system prompt and lets the LLM manage the conversation. That's fine for Level 1, but it can't enforce the three-step sequence or branch reliably when the user gives an unexpected answer. Flows fixes that.
+**Why:** The Nov 7 demo uses a single system prompt and lets the LLM manage the conversation. That's fine for Level 1, but it can't enforce the three-step sequence or branch reliably when the user gives an unexpected answer. The LLM hallucinates steps, repeats itself, or advances out of order. Flows fixes that — the conversation path is a state machine the bot owns, not a guess the LLM makes.
 
-- [ ] Replace the single-prompt `bot.py` with a **Pipecat Flow** that models the hospital Level 1 sequence as state-machine nodes: `greet` → `ask_for_card` → `direct_to_waiting_area` → `close`.
-- [ ] Each node has: an entry prompt, a transition condition (what the user said, via the STT transcript), and a fallback (repeat or simplify). Transitions are deterministic, not LLM-guessed.
-- [ ] The Flow owns the conversation state; the React controller owns the journey position (which step the person is on). The Flow reports node transitions so the controller can offer the approval gate to advance.
-- [ ] Make the Flow reusable: the same Flow engine drives hospital, matatu, and government scenarios by swapping the node definitions, not the bot code.
-- [ ] Add Level 2 (Everyday Practice) and Level 3 (Handling Changes) as Flow variants — longer exchanges, a room-move diversion, a queue-system outage — all as node graphs, not new bots.
+**SA.1 — Flow engine spike · ~1 day · depends on: Nov 7 demo green**
+- [ ] Read the Pipecat Flows docs and one example (`pipecat-flows` repo or the `flows` example in the Pipecat repo). Note the exact API: how a `Flow` is defined, how `FlowConfig`/`FlowNode` work, how transitions fire, how the bot reports the current node to the client.
+- [ ] In a scratch bot (not the demo bot), build the minimal Flow: two nodes (`greet` → `close`), each with an entry prompt and a transition. Run it over SmallWebRTC and confirm the node changes are observable from the React client (via RTVI messages or a custom data channel message).
+- [ ] Record the API surface and the gotchas (e.g. does a node re-fire its entry prompt on every user turn? how do fallbacks work?) in `Project/flows-spike-notes.md`.
+- **Gate:** A two-node Flow runs on SmallWebRTC; the React client sees the node change. Notes file committed.
 
-**Gate:** A person completes the hospital Level 1 role-play and the Flow advances through the three nodes in order; an unexpected answer triggers the fallback, not a hallucinated step.
+**SA.2 — Hospital Level 1 as a Flow · ~1.5 days · depends on: SA.1**
+- [ ] Replace the single-prompt path in `bot.py` with a Flow that models the hospital Level 1 sequence as four nodes: `greet` → `ask_for_card` → `direct_to_waiting_area` → `close`.
+- [ ] Each node has: an **entry prompt** (what Joy says on entering), a **transition condition** (what the user said, matched against the STT transcript — keyword/intent, not LLM-guessed), and a **fallback** (repeat or simplify if the user is confused or declines).
+- [ ] The Flow owns conversation state; the React controller owns journey position. The Flow reports node transitions so the controller can offer the approval gate to advance (the `go_to_step` approval in the PRD).
+- [ ] Keep `scenario.py`'s `JOY_SYSTEM_PROMPT` as the **character** prompt (tone, constraints, fiction label) — the Flow nodes carry the **sequence**. Character + sequence, not one big prompt.
+- **Gate:** A person completes the hospital Level 1 role-play and the Flow advances through the four nodes in order; an unexpected answer triggers the fallback node, not a hallucinated step. Spoken and typed turns both drive the same Flow.
+
+**SA.3 — Flow + approval-gate integration · ~1 day · depends on: SA.2**
+- [ ] Wire the Flow's node-transition signal to the React controller's approval gate: when the Flow reaches a node that would advance the journey (e.g. `direct_to_waiting_area` completes the practice), the controller shows the approve/deny card; deny = stay on the current node.
+- [ ] Add the first approval cases from the PRD's 20-case suite (§5.1): A01 (Direct Next: approve), A02 (Direct Next: deny), A03 (Model navigation: approve), A04 (Model navigation: deny), A05 (prompt asks to bypass approval). Five cases, hand-tested, recorded in `Project/approval-cases.md`.
+- [ ] Confirm the approval gate is enforced in the controller, not the prompt — a "please just go to the next step" prompt does not advance without a positive approval.
+- **Gate:** Five approval cases pass; deny leaves the person on the current Flow node; a bypass prompt does nothing.
+
+**SA.4 — Reusable Flow engine + Level 2/3 · ~1.5 days · depends on: SA.3**
+- [ ] Make the Flow engine reusable: the same engine drives hospital, matatu, and government scenarios by swapping the node definitions (a `flow_config.py` per scenario), not the bot code. The bot reads `scenario_id` from the client and loads the right Flow.
+- [ ] Author the **matatu** scenario as a Flow (Conductor Otieno: fare, payment, boarding, stops) and the **government** scenario as a Flow (Customer Officer Wanjiku: documents, queue, service steps). Reuse the character-prompt pattern from `scenario.py`.
+- [ ] Add **Level 2 (Everyday Practice)** and **Level 3 (Handling Changes)** as Flow variants of the hospital scenario — longer exchanges, a room-move diversion (Level 3), a queue-system outage (Level 3). Each is a node graph with a branch, not a new bot.
+- [ ] Update the React selection screen so all four scenarios + four levels route to the right Flow; only hospital Level 1 is "live demo," the rest are labelled "v1.1 — available."
+- **Gate:** A person picks any of the three scenarios and any level and the Flow loads the right node graph; Level 3's diversion branch fires when the user hits the trigger.
+
+---
 
 #### SB — Multi-agent chaos levels · ~1.5 weeks
 
 **Capability used:** Multi-agent handoff + parallel fan-out over a shared bus.
 
-Level 4 in the Kioo Companion prototype only swaps a speaker label. Pipecat's multi-agent model lets the fourth level actually be multiple personas — a receptionist hands off to a patient in the waiting area, who hands back when the receptionist calls your name.
+**Why:** Level 4 in the Kioo Companion prototype only swaps a speaker label. That's not "busy environment" — it's a relabel. Pipecat's multi-agent model lets Level 4 actually be multiple personas: a receptionist hands off to a patient in the waiting area, who hands back when the receptionist calls your name. Two agents, one session, real handoff. That's the chaos the scripted prototype can't do.
 
-- [ ] Implement Level 4 (Busy Environment) as a **multi-agent handoff**: a primary agent (Receptionist Joy) hands the conversation to a second agent (Patient Amani in the waiting area), who hands back. Each agent is its own Pipecat pipeline with its own character prompt, sharing the session context over the bus.
-- [ ] Add **parallel fan-out** for the "two people talk at once" case: both agents speak, the user chooses who to respond to. This is the chaos that the scripted prototype can't do.
-- [ ] The React controller still owns journey position and approvals; the multi-agent handoff is a Pipecat-internal concern the controller sees as "the current speaker changed."
+**SB.1 — Multi-agent spike · ~2 days · depends on: SA.4**
+- [ ] Read the Pipecat multi-agent examples (`examples/multi-agent/` or the `handoff` examples). Note the exact API: how a primary agent hands off to a sub-agent, how the shared bus carries context, how the client sees "the current speaker changed."
+- [ ] In a scratch bot, build the minimal handoff: Agent A (receptionist) speaks, then on a trigger, hands off to Agent B (patient), who speaks, then hands back. Two pipelines, one session, shared context.
+- [ ] Confirm the React client can observe the handoff (a "speaker changed" event) so the UI can update the current-speaker label and the mascot.
+- [ ] Record the API surface and gotchas (e.g. does handoff preserve conversation history? does the STT/TTS reset?) in `Project/multi-agent-spike-notes.md`.
+- **Gate:** A two-agent handoff runs on SmallWebRTC; the React client sees the speaker change. Notes committed.
+
+**SB.2 — Level 4 as a handoff · ~2 days · depends on: SB.1**
+- [ ] Implement Level 4 (Busy Environment) as a multi-agent handoff: a primary agent (Receptionist Joy) hands the conversation to a second agent (Patient Amani in the waiting area), who hands back when Joy calls the person's name.
+- [ ] Each agent is its own Pipecat pipeline with its own character prompt (Joy: warm receptionist; Amani: fellow patient making small talk). They share the session context over the bus so Amani knows what Joy and the person already said.
+- [ ] The handoff trigger is a Flow node transition (from SA): when the Flow reaches the "wait in Waiting Area B" node, Joy hands off to Amani; when the "Joy calls your name" node fires, Amani hands back.
+- [ ] The React controller still owns journey position and approvals; the handoff is a Pipecat-internal concern the controller sees as "the current speaker changed."
+- **Gate:** Level 4 runs two agents that hand off mid-conversation; the person experiences a busy waiting room (Joy → Amani → Joy), not a label swap.
+
+**SB.3 — Parallel fan-out · ~2 days · depends on: SB.2**
+- [ ] Add the **parallel fan-out** case: both agents speak at once (Joy and Amani overlap briefly), the user chooses who to respond to, and the chosen agent continues while the other yields. This is the real "two people talk at once" chaos.
+- [ ] Use Pipecat's `ParallelPipeline` or the equivalent bus pattern so both agents' audio frames stream in the same turn; the user's interruption (barge-in) selects which agent's context the next turn uses.
+- [ ] The UI shows two mascots/speaker labels during the overlap; after the user responds, it collapses to one.
 - [ ] Gate the handoff behind the same approval gate: advancing from Level 3 to Level 4 is a `go_to_step` the person approves, not an automatic difficulty increase.
+- **Gate:** Level 4 includes a moment where two agents speak at once; the user's response selects one; the other yields. The person approves entering Level 4 first.
 
-**Gate:** Level 4 runs two agents that hand off mid-conversation; the person experiences a busy waiting room, not a label swap.
+**SB.4 — Multi-agent + approval edge cases · ~1 day · depends on: SB.3**
+- [ ] Add approval cases A06–A11 from the PRD's 20-case suite: duplicate approval (A06), duplicate completed result (A07), old-session result after new session (A08), pause during proposal (A09), wrong approval/tool/action ID (A10), unknown target step (A11). Hand-tested, recorded in `Project/approval-cases.md`.
+- [ ] Confirm a handoff mid-approval (the person approves a step while the agent is mid-handoff) doesn't drop the session or double-fire.
+- **Gate:** Six more approval cases pass; a handoff during a pending approval is safe.
+
+---
 
 #### SC — Vendor-agnostic provider layer · ~3 days
 
 **Capability used:** Pluggable STT/LLM/TTS — swap providers with one line.
 
-The Nov 7 bot is pinned to one provider (OpenAI or Gemini Live). If a key runs out, the demo dies. The v1.1 provider layer makes that swappable per scenario and per preference.
+**Why:** The Nov 7 bot is pinned to one provider (OpenAI or Gemini Live). If a key runs out — which is exactly what happened (BLD-001, BLD-002) — the demo dies. The v1.1 provider layer makes that swappable per scenario and per preference, with a fallback chain so one provider's outage doesn't drop the session.
 
-- [ ] Abstract provider config behind an interface: `STTProvider`, `LLMProvider`, `TTSProvider`. The bot reads the scenario + the person's AbilityModel preferences and picks the combo.
-- [ ] Standard pipeline: **Deepgram STT + OpenAI LLM + Cartesia TTS** (lowest latency, vendor-neutral). Speech-to-speech option: **Gemini Live** or **OpenAI Realtime** for scenarios where the person has opted into audio and the key has credits.
-- [ ] Let the person's preferences drive the choice: if they've set `audio: off`, the bot uses text-only LLM (no STT/TTS) and the typed path is the only path. If `audio: on` and a Live key is available, use speech-to-speech for lowest latency.
-- [ ] Fallback chain: if Gemini Live 503s, fall back to Deepgram+OpenAI+Cartesia automatically. The person hears a tiny pause, not a dead session.
+**SC.1 — Provider interface · ~1 day · depends on: SA.2**
+- [ ] Abstract provider config behind an interface: `STTProvider`, `LLMProvider`, `TTSProvider`, each with a `from_env()` / `from_profile()` factory. The bot reads the scenario + the person's AbilityModel preferences and picks the combo.
+- [ ] Implement two concrete combos behind the interface: (a) `OpenAIStack` — OpenAI STT + OpenAI LLM + OpenAI TTS; (b) `GeminiLiveStack` — Gemini Live speech-to-speech. Both already work from the Nov 7 bot; this refactors them behind the interface.
+- [ ] The bot's startup key-check becomes: "which stacks are available given the keys in `.env`?" — and it picks the first available one, logging which it chose.
+- **Gate:** The bot runs on either stack without code changes; the startup log says which stack it picked and why.
 
-**Gate:** The bot runs on three different provider combos without code changes; a Live key outage degrades to the standard pipeline without dropping the session.
+**SC.2 — Preference-driven selection · ~1 day · depends on: SC.1**
+- [ ] Add a third stack: `DeepgramOpenAICartesiaStack` — Deepgram STT + OpenAI LLM + Cartesia TTS (the standard vendor-neutral pipeline). This is the lowest-latency text-path option and the one the PRD prefers.
+- [ ] Let the person's AbilityModel preferences drive the choice: if `audio: off`, the bot uses a text-only LLM (no STT/TSS) and the typed path is the only path. If `audio: on` and a Live-eligible key is available, use speech-to-speech (Gemini Live or OpenAI Realtime) for lowest latency. If `audio: on` but no Live key, use the Deepgram+OpenAI+Cartesia stack.
+- [ ] The React preference surface shows which stack is active and why ("audio on, Gemini Live available → speech-to-speech"), so the person knows what's running.
+- **Gate:** Three provider combos are selectable by preference; the person sees which is active; `audio: off` drops to text-only cleanly.
+
+**SC.3 — Fallback chain · ~1 day · depends on: SC.2**
+- [ ] Implement a runtime fallback: if the active stack 401s/503s mid-session (the exact failure that killed the Nov 7 demo), the bot catches it, switches to the next available stack, and resumes — the person hears a tiny pause, not a dead session.
+- [ ] Order: `GeminiLive` → `DeepgramOpenAICartesia` → `OpenAIStack` → text-only. Each fallback is logged; the UI shows a "switched provider" notice (not a silent swap, so the person isn't confused by a voice change).
+- [ ] Add a health check on startup: if no stack's key is valid, the bot refuses to start voice and falls back to text-only with a clear message — not a crash.
+- **Gate:** A forced Gemini Live 503 mid-session degrades to the Deepgram+OpenAI+Cartesia stack without dropping the session; the UI shows the switch; a no-valid-keys startup falls back to text-only with a message.
+
+---
 
 #### SD — Multimodal: camera for Live help · ~1 week
 
 **Capability used:** Multimodal pipeline (video frames, not just audio).
 
-The PRD's Live help mode ("explain this sign") needs the camera. Pipecat carries video frames in the same pipeline as audio — the model sees what the person sees, in real time.
+**Why:** The PRD's Live help mode ("explain this sign") needs the camera. Pipecat carries video frames in the same pipeline as audio — the model sees what the person sees, in real time. This is the capability that makes the companion useful *at the location*, not just in rehearsal.
 
-- [ ] Add an **opt-in camera stream** to the bot: the person grants per-session consent, the bot sends video frames to a vision-capable model (Gemini Multimodal Live or OpenAI Realtime with video).
-- [ ] The person points the camera at a sign and asks "what does this mean?" — the model answers in spoken language, using the toolkit's `simplify-text` adapter to keep the answer plain.
+**SD.1 — Camera transport spike · ~1.5 days · depends on: SC.1**
+- [ ] Read the Pipecat multimodal examples (`examples/vision-bots/` or the Gemini Multimodal Live video examples). Note the exact API: how a video track is added to the SmallWebRTC transport, how frames reach the LLM, how `GeminiMultimodalLiveLLMService` (or `OpenAIRealtime` with video) consumes them.
+- [ ] In a scratch bot, add a camera track to the SmallWebRTC connection and confirm frames reach the LLM (check the LLM's input frame log). Confirm the React client can enable/disable the camera independently of the mic.
+- [ ] Record the API surface and gotchas (e.g. frame rate limits, does the model see every frame or sampled?) in `Project/multimodal-spike-notes.md`.
+- **Gate:** A camera track flows from the React client through SmallWebRTC to a vision-capable LLM; the LLM receives video frames. Camera and mic toggle independently.
+
+**SD.2 — "Explain this sign" flow · ~2 days · depends on: SD.1**
+- [ ] Add an **opt-in camera stream** to the demo bot: the person grants per-session consent (a DOM toggle, not a browser permission prompt buried in settings), the bot sends video frames to a vision-capable model.
+- [ ] The person points the camera at a sign and asks "what does this mean?" — the model answers in spoken language, using the toolkit's `simplify-text` adapter (from the Nov 7 S3) to keep the answer plain.
+- [ ] The system prompt for the vision mode is explicit: "You are explaining a visible sign in plain language. You are not detecting obstacles, reading the person's location, or giving navigation advice. If you can't see the sign clearly, say so."
 - [ ] **Never** presented as obstacle detection or navigation truth — the UI says "explanation only; confirm with staff or signage." This is the PRD's explicit boundary (§2.2 US-4, §4.5).
-- [ ] Mic and camera have separate on/off controls. Turning the camera off doesn't drop the voice session; turning both off leaves the typed path.
+- **Gate:** The person points the camera at a hospital sign, asks what it means, and hears a plain-language explanation; the "not navigation" label is visible; the simplify-text adapter keeps the answer plain.
 
-**Gate:** The person points the camera at a hospital sign, asks what it means, and hears a plain-language explanation — with the camera clearly opt-in and the "not navigation" label visible.
+**SD.3 — Camera + audio independence · ~1 day · depends on: SD.2**
+- [ ] Mic and camera have separate on/off controls. Turning the camera off doesn't drop the voice session; turning both off leaves the typed path as the guaranteed alternative.
+- [ ] Add a "what am I seeing?" debug overlay (dev-only) that shows the current frame the model is processing, so the person can confirm the camera is pointed at the right thing. Disabled in the demo build.
+- [ ] Camera consent is per-session: refreshing the page clears it; the bot doesn't retain camera access between sessions.
+- **Gate:** Camera and mic toggle independently; both off → typed path; camera off mid-explanation → voice continues without the visual; refresh clears camera consent.
+
+**SD.4 — Vision-mode approval + safety · ~0.5 days · depends on: SD.3**
+- [ ] Add approval cases for the camera: enabling the camera is an approved action (the person sees "Joy wants to use your camera — approve/deny"); denying leaves the camera off and the voice session running.
+- [ ] Confirm the "not navigation" label is in the system prompt, the UI, and the write-up. A reviewer reading any one of them sees the boundary.
+- **Gate:** Camera enable is approval-gated; the "not navigation" boundary is in the prompt, the UI, and the write-up.
+
+---
 
 #### SE — The four-mode vision · ~2 weeks
 
 **Capability used:** One pipeline architecture, four modes sharing one profile.
 
-The PRD's north star is Learn / Practise / Explore / Live help, all sharing one profile, one assistant, one approval gate. Pipecat's pipeline is the "one assistant"; the four modes are different service selections behind it.
+**Why:** The PRD's north star is Learn / Practise / Explore / Live help, all sharing one profile, one assistant, one approval gate. Pipecat's pipeline is the "one assistant"; the four modes are different service selections behind it. This is where Rehearse the Journey stops being a one-role-play demo and becomes the platform the PRD describes.
 
+**SE.1 — Mode router · ~1.5 days · depends on: SC.2, SD.2**
+- [ ] Add a **mode router** to the bot: the React client sends `mode: "learn" | "practise" | "explore" | "live-help"` on session start; the bot loads the right service combo + system prompt for that mode. One Pipecat pipeline, four configurations.
+- [ ] The router is the only place mode selection happens — the bot doesn't branch on mode mid-session; a mode change is a new session (approved, per the PRD's `go_to_step`).
+- [ ] The React UI shows the four modes; only Practise and Live help are live in v1.1; Learn and Explore are labelled "v1.1 — available" until SE.2 and SE.3 land.
+- **Gate:** A person picks a mode and the bot loads the right configuration; a mode change starts a new approved session.
+
+**SE.2 — Learn mode · ~3 days · depends on: SE.1**
 - [ ] **Learn mode** — the assistant turns a goal or document into lesson outlines. Uses the same Pipecat bot with a text LLM (no voice), outputting structured `RehearsalStep`s the person reviews and approves.
-- [ ] **Practise mode** — the Flows + multi-agent build from SA + SB. The person rehearses the role-play; the bot is the character.
-- [ ] **Explore mode** — Maps grounding + Routes (separate JS layer, unchanged from the PRD). The bot answers location questions with sourced answers; Maps facts vs generated explanations are labelled.
-- [ ] **Live help mode** — the camera + spoken help from SD. The person talks to the assistant in real time about what they see.
-- [ ] All four modes read the same AbilityModel profile; the person's preferences (language, explanation length, audio, sensory) drive every mode. One set of explicit edits, four modes honouring them.
+- [ ] The person types a goal ("help me prepare for my first hospital visit"); the bot returns 3–5 `RehearsalStep`s (name, description, distress rating placeholder). The person edits the distress ratings and approves the set; the approved set becomes a Practise-mode journey.
+- [ ] No voice in Learn mode — it's a text planning surface. The toolkit's `simplify-text` adapter is active so the step descriptions stay plain.
+- **Gate:** A person enters a goal, gets a `RehearsalStep` set, edits distress ratings, approves it; the approved set loads in Practise mode.
 
-**Gate:** The person moves between all four modes in one session without re-setting preferences; each mode reads the same profile and honours the same consent gate.
+**SE.3 — Explore mode (Maps grounding + Routes) · ~4 days · depends on: SE.1**
+- [ ] **Explore mode** — Maps grounding + Routes (the JS layer the PRD already specifies). The bot answers location questions with sourced answers; Maps facts vs generated explanations are labelled.
+- [ ] Wire the Google Maps grounding API (or the Leaflet/OSM + Digital Matatus fallback) as a service the bot calls. The bot's system prompt for Explore mode is explicit: "You answer location questions using Maps grounding. Display source links. Distinguish retrieved facts from generated explanations. Never infer entrances, step-free access, queues, or hospital procedures without evidence — say 'unknown' instead."
+- [ ] Add the Routes API: the person requests a candidate route between two public locations; the UI labels it "candidate path — confirm with your co-designer." The route never advances the rehearsal.
+- [ ] English/Kiswahili location-answer policy: if grounding is English-only, label a generated Kiswahili translation separately; don't imply native bilingual grounding.
+- **Gate:** A person asks "what's near this hospital," gets a sourced answer; requests a candidate route; the "candidate, confirm" label is visible; an unsupported accessibility question returns "unknown," not a guess.
+
+**SE.4 — Live help mode · ~1 day · depends on: SD.2, SE.1**
+- [ ] **Live help mode** — the camera + spoken help from SD. The person talks to the assistant in real time about what they see. This is SD's "explain this sign" flow, exposed as a first-class mode.
+- [ ] The mode router loads the vision-capable stack + the vision system prompt; the React UI shows the camera toggle and the "not navigation" label.
+- **Gate:** A person enters Live help, enables the camera, asks about a sign, gets a spoken plain-language explanation; the mode is distinct from Practise.
+
+**SE.5 — One profile, four modes · ~1 day · depends on: SE.2, SE.3, SE.4**
+- [ ] All four modes read the same AbilityModel profile; the person's preferences (language, explanation length, audio, sensory) drive every mode. One set of explicit edits, four modes honouring them.
+- [ ] The React preference surface is the single source of truth — changing a preference in one mode changes it for all. Deleting a preference stops the corresponding adaptation in every mode.
+- [ ] Add the remaining approval cases (A12–A20) from the PRD's 20-case suite: Back/Skip/ladder branches, Save approved immutable preview, Save deny, Checklist edited after proposal, replacement + write failure, Exit branches, Save after Exit. Hand-tested, recorded in `Project/approval-cases.md`.
+- **Gate:** A person moves between all four modes in one session without re-setting preferences; each mode reads the same profile; all 20 approval cases pass.
+
+---
 
 #### SF — Pipecat UI + mobile client · ~1 week
 
 **Capability used:** Pipecat UI (shadcn registry) + client SDKs (React Native).
 
-The Nov 7 client uses the legacy Voice UI Kit. Pipecat UI replaces it with shadcn components installed as source — the incoming commits already started this (components.json, the Pipecat UI components).
+**Why:** The Nov 7 client uses the legacy Voice UI Kit. Pipecat UI replaces it with shadcn components installed as source — the incoming commits already started this (components.json, the Pipecat UI components). A React Native client makes the companion phone-usable, not just laptop-demoable.
 
-- [ ] Finish the **Pipecat UI** integration: replace the custom App.tsx UI with the shadcn registry components (audio-visualizer-bar, device-select, user-audio-control). These are the components the incoming commits added.
-- [ ] Add a **React Native client** using `@pipecat-ai/client-react-native` for mobile. Same bot backend, different client SDK. The person practises on their phone, not just the demo laptop.
-- [ ] Keep the toolkit DOM adapters running on both clients — the React web client runs them natively; the React Native client needs a bridge or a re-implementation (the adapters are pure-DOM, so the React Native side wraps the same logic in native components).
+**SF.1 — Finish Pipecat UI integration · ~2 days · depends on: SA.2**
+- [ ] Finish the **Pipecat UI** integration the incoming commits started: replace the custom App.tsx UI with the shadcn registry components (`audio-visualizer-bar`, `device-select`, `user-audio-control`). These are the components in `client/src/components/pipecat/` and `client/src/components/ui/`.
+- [ ] Keep the React controller, approval gate, and toolkit adapter wiring (from Nov 7 S2/S3) as the logic layer; Pipecat UI is the presentation layer, not the state owner.
+- [ ] Style with the Kioo Companion palette (teal/black/red badges) so the demo's visual identity survives the component swap.
+- **Gate:** The role-play runs on the Pipecat UI components; the controller + approval gate + adapters still work; the Kioo palette is intact.
 
-**Gate:** The person drives the role-play from a phone; the same toolkit adapters (read-aloud, simplify, stop-auto-advance) are active on both web and mobile.
+**SF.2 — React Native client spike · ~1.5 days · depends on: SF.1**
+- [ ] Scaffold a React Native client using `@pipecat-ai/client-react-native` (or the React Native client SDK). Same bot backend, different client SDK. The person practises on their phone, not just the demo laptop.
+- [ ] Confirm the SmallWebRTC transport works from React Native (the SDK supports it; verify on a physical device, not just an emulator).
+- [ ] Record the API surface and gotchas in `Project/react-native-spike-notes.md`.
+- **Gate:** A React Native client connects to the same bot over SmallWebRTC on a phone; Joy speaks; the spike notes are committed.
+
+**SF.3 — Adapter bridge for React Native · ~2 days · depends on: SF.2**
+- [ ] Keep the toolkit DOM adapters running on both clients — the React web client runs them natively; the React Native client needs a bridge or a re-implementation. The adapters are pure-DOM, so the React Native side wraps the same logic in native components (`Text` instead of `<p>`, `TouchableOpacity` instead of `<button>`, etc.).
+- [ ] Port the four Nov 7 adapters (`read-aloud`, `simplify-text`, `stop-auto-advance`, `motion-reducer`) to React Native equivalents. `read-aloud` uses `expo-speech`; `simplify-text` rewrites the same text containers; `stop-auto-advance` is framework-agnostic; `motion-reducer` maps to `Animated` config.
+- [ ] The AbilityModel profile is the same on both clients — the person edits once, both honour it.
+- **Gate:** A person drives the role-play from a phone; the same four toolkit adapters are active on both web and mobile; one profile edit changes both.
+
+**SF.4 — Whisker + Tail dev tooling · ~0.5 days · depends on: SF.1**
+- [ ] Wire **Whisker** (Pipecat's real-time debugger) into the dev workflow — inspect the pipeline while it runs, see frame flow, catch where a turn detection fails. Essential for SB (multi-agent) and SD (multimodal) debugging.
+- [ ] Wire **Tail** (terminal dashboard) for monitoring active sessions during dev.
+- [ ] Document the dev workflow in `apps/rehearse-journey/README.md`: how to start the bot with Whisker, how to read the frame flow, how to use Tail.
+- **Gate:** A developer can run the bot with Whisker and see frame flow live; Tail shows active sessions; the README documents both.
+
+---
 
 ### Tooling the v1.1 build uses
 
-- **Whisker** (Pipecat's real-time debugger) — inspect the pipeline while it runs, see frame flow, catch where a turn detection fails. Essential for SB (multi-agent) and SD (multimodal).
-- **Tail** (terminal dashboard) — monitor active sessions during dev.
-- **`pipecat eval`** — run the PRD's 20-case approval suite (§5.1 of the implementation plan) against the Flows build. The Nov 7 demo skips this; v1.1 doesn't.
+- **Whisker + Tail** — Pipecat's real-time debugger and terminal dashboard. Wired in SF.4; essential for debugging SB (multi-agent) and SD (multimodal).
+- **`pipecat eval`** — run scripted behavioral evals against the bot. The PRD's 20-case approval suite (§5.1 of the implementation plan) is added incrementally: cases A01–A05 in SA.3, A06–A11 in SB.4, A12–A20 in SE.5. The Nov 7 demo skips this; v1.1 doesn't.
+
+### Dependencies at a glance
+
+```
+Nov 7 demo (S0–S4) — must be green first
+        │
+        ▼
+  SA.1 (Flows spike) ──► SA.2 (hospital L1 Flow) ──► SA.3 (approval) ──► SA.4 (reusable + L2/L3)
+                                                      │                     │
+                                                      ▼                     ▼
+                                              SC.1 (provider iface)   SB.1 (multi-agent spike)
+                                                      │                     │
+                                                      ▼                     ▼
+                                              SC.2 (pref-driven)      SB.2 (L4 handoff)
+                                                      │                     │
+                                                      ▼                     ▼
+                                              SC.3 (fallback chain)    SB.3 (parallel fan-out)
+                                                      │                     │
+                                                      ▼                     ▼
+                                              SD.1 (camera spike)      SB.4 (approval edge cases)
+                                                      │
+                                                      ▼
+                                              SD.2 ("explain this sign")
+                                                      │
+                                                      ▼
+                                              SD.3 + SD.4 (independence + approval)
+                                                      │
+                                                      ▼
+                                              SE.1 (mode router) ──► SE.2 (Learn) ──► SE.3 (Explore) ──► SE.4 (Live help) ──► SE.5 (one profile, 4 modes)
+                                                      │
+                                                      ▼
+                                              SF.1 (Pipecat UI) ──► SF.2 (RN spike) ──► SF.3 (adapter bridge) ──► SF.4 (Whisker + Tail)
+```
+
+Critical path: **SA → SC → SD → SE**. SB (multi-agent) can run in parallel with SC/SD once SA.4 lands. SF (UI + mobile) can start as early as SA.2 (it only needs the bot running) but is sequenced last because the demo laptop is the Nov 7 target and mobile is a v1.1 stretch.
 
 ### Honest v1.1 scope notes
 

@@ -10,14 +10,49 @@ import { MotionReducer } from '../../../../tools/adapters/motion-reducer.js'
 
 export { ReadAloud, StopAutoAdvance, MotionReducer }
 
-// The full toolkit simplify-text adapter requires an AI provider. Sprint 3's
-// local fixture has no provider key, so this deterministic adapter demonstrates
-// the same reversible preference effect without pretending to call a model.
-export function simplifyStep(text: string, enabled: boolean): string {
-  if (!enabled) return text
-  return text
-    .replace(/Receptionist Joy/gi, 'the receptionist')
-    .replace(/fictional hospital/gi, 'practice hospital')
-    .replace(/National ID or clinic registration card/gi, 'ID or clinic card')
-    .replace(/Waiting Area B/gi, 'Waiting Area B')
+// StopAutoAdvance pauses any playing <audio>/<video> it finds — and the
+// bot's voice is a plain <audio> element (PipecatClientAudio). An
+// accessibility preference must never still the rehearsal's own voice, so
+// after enabling we hand AUDIO elements back: anything the adapter already
+// paused is resumed and untracked, and an element still loading (the
+// adapter pauses those later, on 'playing') is started again once.
+export function enableStopAutoAdvance() {
+  StopAutoAdvance.enable()
+  handBackBotAudio()
+}
+
+function handBackBotAudio() {
+  const paused: Set<HTMLMediaElement> | undefined = StopAutoAdvance.pausedMedia
+  if (paused) {
+    for (const el of Array.from(paused)) {
+      if (!el || el.tagName !== 'AUDIO') continue
+      paused.delete(el)
+      try { void el.play()?.catch?.(() => {}) } catch { /* autoplay policy */ }
+    }
+  }
+  document.querySelectorAll('audio').forEach((el) => {
+    if (!el.paused) return
+    el.addEventListener('playing', function resume() {
+      try { void el.play()?.catch?.(() => {}) } catch { /* already playing */ }
+    }, { once: true })
+  })
+}
+
+// The toolkit's simplify-text adapter rewrites page text through an AI
+// provider; the demo has no provider key, so this deterministic table does
+// the same job for the fixture's fixed strings — the same reversible
+// "Show original" pattern, with no model call and no pretense.
+export const ORIGINAL_STEP_TEXT =
+  'During this rehearsal you will interact with Receptionist Joy at the front desk ' +
+  'of a fictional hospital. You will be asked to present a National ID or clinic ' +
+  'registration card and to state the reason for your visit. The exchange follows ' +
+  'a fixed sequence and will not proceed until you choose to continue.'
+
+const SIMPLE_STEP_TEXT =
+  'You will talk to the receptionist at a practice hospital. Have your ID or ' +
+  'clinic card ready, and say why you are visiting. The chat goes one step at ' +
+  'a time — nothing moves on until you say so.'
+
+export function simplifyStepText(text: string): string {
+  return text === ORIGINAL_STEP_TEXT ? SIMPLE_STEP_TEXT : text
 }

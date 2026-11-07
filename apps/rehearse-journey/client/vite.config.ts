@@ -12,6 +12,9 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // The S3 adapters are imported straight from tools/adapters/ at the repo
+    // root, outside this package — allow the dev server to serve them.
+    fs: { allow: ['../../..'] },
     // Proxy /api calls to the Pipecat bot server during dev
     proxy: {
       '/api': {

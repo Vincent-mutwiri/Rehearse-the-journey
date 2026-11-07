@@ -12,6 +12,7 @@ export interface JoyCenterpieceProps {
   reduceMotion: boolean
   stopAuto: boolean
   micEnabled: boolean
+  userSpeaking?: boolean
   currentScenario: ScenarioDef
   chaosLevel: 1 | 2 | 3 | 4
   currentStepDef: FlowStepDef | undefined
@@ -31,6 +32,7 @@ export default function JoyCenterpiece({
   reduceMotion,
   stopAuto,
   micEnabled,
+  userSpeaking = false,
   currentScenario,
   chaosLevel,
   currentStepDef,
@@ -48,6 +50,53 @@ export default function JoyCenterpiece({
       }
     : null
 
+  const primaryPersona: JoyPersona =
+    activePersona === 'amani' ? currentScenario.persona : activePersona
+  const primaryLabel =
+    activePersona === 'amani'
+      ? currentScenario.personaLabel
+      : (currentStepDef?.speakerLabel ?? currentScenario.personaLabel)
+
+  const partnerLabelByScenario: Record<string, string> = {
+    hospital: 'Visitor Amani (You / Partner)',
+    matatu: 'Passenger Amani (You / Partner)',
+    government: 'Citizen Amani (You / Partner)',
+    directions: 'Visitor Amani (You / Partner)',
+  }
+  const partnerLabel = partnerLabelByScenario[currentScenario.id] ?? 'Practice Partner Amani'
+
+  const primaryState: JoyState =
+    state === 'paused' || state === 'ended' || state === 'connecting' || state === 'idle'
+      ? state
+      : parallelOverlap
+        ? state === 'speaking'
+          ? 'speaking'
+          : 'listening'
+        : activePersona === 'amani'
+          ? state === 'speaking'
+            ? 'listening'
+            : 'idle'
+          : joyThinking && state === 'listening'
+            ? 'idle'
+            : state
+
+  const partnerState: JoyState =
+    state === 'paused' || state === 'ended' || state === 'connecting' || state === 'idle'
+      ? state
+      : parallelOverlap
+        ? state === 'speaking'
+          ? 'speaking'
+          : 'listening'
+        : activePersona === 'amani'
+          ? state
+          : userSpeaking
+            ? 'speaking'
+            : state === 'speaking'
+              ? 'listening'
+              : micEnabled
+                ? 'speaking'
+                : 'listening'
+
   return (
     <section
       aria-label="Joy, your rehearsal companion"
@@ -56,40 +105,53 @@ export default function JoyCenterpiece({
       <div
         className="joy-centerpiece-stage"
         data-parallel-overlap={parallelOverlap ? 'true' : 'false'}
+        data-duo-stage="true"
       >
         <div className="joy-stage-backdrop" aria-hidden="true" />
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <JoyMascot
-            state={joyThinking && state === 'listening' ? 'idle' : state}
-            thinking={joyThinking}
-            persona={activePersona}
-            encourageSignal={nod}
-            reduceMotion={reduceMotion || stopAuto}
-            className="lg:scale-110"
-          />
-          {parallelOverlap && (
+        <div className="joy-duo-row flex items-end justify-center gap-1 sm:gap-3">
+          <div className="flex flex-col items-center">
             <JoyMascot
-              state={state === 'speaking' ? 'speaking' : 'listening'}
-              persona="amani"
-              companionLabel="Patient Amani, fellow visitor"
+              state={primaryState}
+              thinking={joyThinking && activePersona !== 'amani'}
+              persona={primaryPersona}
+              facing="right"
+              companionLabel="Joy, your rehearsal companion"
               encourageSignal={nod}
               reduceMotion={reduceMotion || stopAuto}
-              className="scale-95"
+              className="joy-duo-mascot"
             />
-          )}
+            <span className="mt-1 rounded-full bg-lavender/40 px-2.5 py-0.5 text-[11px] font-semibold">
+              {primaryLabel}
+            </span>
+          </div>
+          <div className="flex flex-col items-center">
+            <JoyMascot
+              state={partnerState}
+              thinking={joyThinking && activePersona === 'amani'}
+              persona="amani"
+              facing="left"
+              companionLabel="Amani, practice conversation partner"
+              encourageSignal={nod}
+              reduceMotion={reduceMotion || stopAuto}
+              className="joy-duo-mascot"
+            />
+            <span className="mt-1 rounded-full bg-sage/40 px-2.5 py-0.5 text-[11px] font-semibold">
+              {partnerLabel}
+            </span>
+          </div>
         </div>
-        <span className="joy-status-pill" aria-hidden="true">
+        <span className="joy-status-pill mt-2" aria-hidden="true">
           {state === 'speaking'
-            ? `🔊 ${currentStepDef?.speakerLabel ?? 'Joy'} speaking`
+            ? `🔊 ${currentStepDef?.speakerLabel ?? 'Joy'} speaking to Amani`
             : joyThinking
               ? '💭 Joy is thinking…'
               : state === 'listening'
-                ? micEnabled
-                  ? '🎤 Listening to your voice'
-                  : '✨ Ready for your turn'
+                ? micEnabled || userSpeaking
+                  ? '🎤 Your turn — Amani speaking with Joy'
+                  : '✨ Two-mascot dialogue ready for your turn'
                 : state === 'paused'
                   ? '⏸ Resting (paused)'
-                  : '👋 Practice companion'}
+                  : '👋 Practice companions'}
         </span>
       </div>
       <div className="rehearsal-companion-heading text-center">

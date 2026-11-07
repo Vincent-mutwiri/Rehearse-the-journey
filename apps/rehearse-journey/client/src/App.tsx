@@ -108,6 +108,25 @@ function RehearsalView() {
   const [currentExchangeOnly, setCurrentExchangeOnly] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   const [aloudSpeaking, setAloudSpeaking] = useState(false)
+  const [userSpeaking, setUserSpeaking] = useState(false)
+  const userSpeakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (userSpeakTimerRef.current) clearTimeout(userSpeakTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    const lastTurn = turns[turns.length - 1]
+    if (lastTurn?.speaker === 'You') {
+      setUserSpeaking(true)
+      if (userSpeakTimerRef.current) clearTimeout(userSpeakTimerRef.current)
+      userSpeakTimerRef.current = setTimeout(() => {
+        setUserSpeaking(false)
+      }, 1800)
+    }
+  }, [turns])
 
   const isDevMode = useMemo(() => {
     if (typeof window === 'undefined') return false
@@ -215,7 +234,7 @@ function RehearsalView() {
   if (state === 'idle' && !dashboardSection) {
     return (
       <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-8 px-5 py-8">
-        <Dashboard onSelect={setDashboardSection} />
+        <Dashboard onSelect={setDashboardSection} reduceMotion={reduceMotion || stopAuto} />
       </main>
     )
   }
@@ -262,6 +281,7 @@ function RehearsalView() {
         reduceMotion={reduceMotion}
         stopAuto={stopAuto}
         micEnabled={speech.micEnabled}
+        userSpeaking={userSpeaking || Boolean(speech.interimSpoken) || Boolean(typedInput.trim())}
         currentScenario={currentScenario}
         chaosLevel={chaosLevel}
         currentStepDef={currentStepDef}
@@ -274,7 +294,31 @@ function RehearsalView() {
 
       <div className="rehearsal-conversation flex min-w-0 flex-col gap-4 lg:flex-[1.4]">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() =>
+                void (async () => {
+                  // Tear down any live connection first, then land on the Dashboard.
+                  if (isConnected || state === 'connecting' || state === 'paused') {
+                    await stopSession('ended')
+                  }
+                  setTurns([])
+                  setTypedInput('')
+                  setError('')
+                  setStoryId(null)
+                  setDashboardSection(null)
+                  setReadAloud(false)
+                  setAloudSpeaking(false)
+                  setState('idle')
+                })()
+              }
+              aria-label="Back to home — ends this session and returns to the dashboard"
+              title="Back to home — ends this session and returns to the dashboard"
+              className="rounded-full border border-ink/15 bg-white/60 px-3 py-1 text-xs font-semibold text-ink/80 transition-colors hover:border-lavender/60 hover:bg-white"
+            >
+              ← Home
+            </button>
             <h2 className="text-lg font-semibold">Conversation</h2>
             <button
               type="button"

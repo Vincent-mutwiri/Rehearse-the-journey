@@ -6,6 +6,7 @@
  */
 
 import { Sprout, Navigation, HeartPulse, ArrowRight } from 'lucide-react'
+import JoyMascot from './JoyMascot'
 
 export type DashboardSection =
   | 'simulations'
@@ -14,6 +15,7 @@ export type DashboardSection =
 
 export interface DashboardProps {
   onSelect: (section: DashboardSection) => void
+  reduceMotion?: boolean
 }
 
 const SECTIONS: Array<{
@@ -26,7 +28,7 @@ const SECTIONS: Array<{
   {
     id: 'simulations',
     title: 'Simulations',
-    description: 'Practise conversations with Joy — hospital, matatu, government office. Pick a scenario and rehearse.',
+    description: 'Practise conversations with Joy & Amani — hospital, matatu, government office. Pick a scenario and rehearse.',
     icon: Sprout,
     accent: 'lavender',
   },
@@ -46,13 +48,52 @@ const SECTIONS: Array<{
   },
 ]
 
-export default function Dashboard({ onSelect }: DashboardProps) {
+export default function Dashboard({ onSelect, reduceMotion = false }: DashboardProps) {
   return (
     <section className="dashboard-grid" aria-label="Choose a section">
-      <h2 className="dashboard-heading">What would you like to do?</h2>
-      <p className="dashboard-subtitle">
-        Pick a section to start. Joy is here with you the whole way.
-      </p>
+      <div className="mx-auto flex flex-col items-center gap-2 text-center">
+        <div
+          className="joy-centerpiece-stage"
+          data-duo-stage="true"
+        >
+          <div className="joy-stage-backdrop" aria-hidden="true" />
+          <div className="joy-duo-row flex items-end justify-center gap-2 sm:gap-4">
+            <div className="flex flex-col items-center">
+              <JoyMascot
+                state="speaking"
+                persona="joy"
+                facing="right"
+                companionLabel="Joy, your rehearsal companion"
+                reduceMotion={reduceMotion}
+                className="joy-duo-mascot"
+              />
+              <span className="mt-1 rounded-full bg-lavender/40 px-2.5 py-0.5 text-[11px] font-semibold">
+                Receptionist Joy
+              </span>
+            </div>
+            <div className="flex flex-col items-center">
+              <JoyMascot
+                state="listening"
+                persona="amani"
+                facing="left"
+                companionLabel="Amani, practice conversation partner"
+                reduceMotion={reduceMotion}
+                className="joy-duo-mascot"
+              />
+              <span className="mt-1 rounded-full bg-sage/40 px-2.5 py-0.5 text-[11px] font-semibold">
+                Visitor Amani
+              </span>
+            </div>
+          </div>
+          <span className="joy-status-pill mt-2" aria-hidden="true">
+            💬 Joy &amp; Amani rehearsing together
+          </span>
+        </div>
+        <h2 className="dashboard-heading mt-1">What would you like to do?</h2>
+        <p className="dashboard-subtitle">
+          Pick a section to start. Joy &amp; Amani are here with you the whole way.
+        </p>
+      </div>
       <div className="dashboard-cards" role="group">
         {SECTIONS.map(s => {
           const Icon = s.icon

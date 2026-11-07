@@ -85,11 +85,38 @@ export default function WelcomeLanding({
         </div>
         <div className="welcome-companion">
           <div className="welcome-companion-backdrop" aria-hidden="true" />
-          <JoyMascot state="idle" reduceMotion={reduceMotion || stopAuto} className="welcome-joy" />
-          <p className="welcome-greeting">
-            Hi, I’m Joy.
+          <div className="welcome-duo flex items-end justify-center gap-1 sm:gap-2">
+            <div className="flex flex-col items-center">
+              <JoyMascot
+                state="speaking"
+                persona="joy"
+                facing="right"
+                companionLabel="Joy, your rehearsal companion"
+                reduceMotion={reduceMotion || stopAuto}
+                className="welcome-joy"
+              />
+              <span className="mt-1 rounded-full bg-lavender/40 px-2.5 py-0.5 text-[11px] font-semibold">
+                Receptionist Joy
+              </span>
+            </div>
+            <div className="flex flex-col items-center">
+              <JoyMascot
+                state="listening"
+                persona="amani"
+                facing="left"
+                companionLabel="Amani, practice conversation partner"
+                reduceMotion={reduceMotion || stopAuto}
+                className="welcome-joy welcome-partner-joy"
+              />
+              <span className="mt-1 rounded-full bg-sage/40 px-2.5 py-0.5 text-[11px] font-semibold">
+                Visitor Amani
+              </span>
+            </div>
+          </div>
+          <p className="welcome-greeting mt-2">
+            Hi, we’re Joy &amp; Amani.
             <br />
-            <strong>Let’s try it together.</strong>
+            <strong>Let’s rehearse the conversation together.</strong>
           </p>
         </div>
       </section>

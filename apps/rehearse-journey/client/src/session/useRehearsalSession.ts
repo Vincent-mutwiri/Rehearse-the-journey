@@ -76,12 +76,32 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
   const currentScenario = SCENARIO_CATALOG[scenarioId]
   const currentSteps = currentScenario.stepsByLevel[chaosLevel]
 
+  const openStory = useCallback(
+    (targetStoryId: string) => {
+      if (!STORIES[targetStoryId]) return
+      setStorySession(s => s + 1)
+      setStoryId(targetStoryId)
+      if (client && active.current) {
+        try {
+          client.sendClientMessage?.('story_request', { story_id: targetStoryId })
+        } catch {
+          /* ignore if mock does not define sendClientMessage */
+        }
+      }
+    },
+    [client],
+  )
+
   const approval = useApprovalGate({
     client,
     currentSteps,
-    onStepApproved: (speaker, fanout) => {
+    onStepApproved: (speaker, fanout, stepStoryId) => {
       setActivePersona(speaker)
       setParallelOverlap(fanout)
+      if (stepStoryId && STORIES[stepStoryId]) {
+        setStorySession(s => s + 1)
+        setStoryId(stepStoryId)
+      }
     },
     onCameraConsentChanged: setCameraConsent,
   })
@@ -93,10 +113,31 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
     PROVIDER_STACK_OPTIONS.find(p => p.id === (audioPref ? providerStackId : 'text_only')) ??
     PROVIDER_STACK_OPTIONS[0]
 
-  const addTurn = useCallback((speaker: 'Joy' | 'You', text: string, speakerLabel?: string) => {
-    setTurns(prev => [...prev, { speaker, speakerLabel, text, id: turnId.current++ }])
-    if (speaker === 'You') setNod(n => n + 1)
-  }, [])
+  const addTurn = useCallback(
+    (
+      speaker: 'Joy' | 'You',
+      text: string,
+      speakerLabel?: string,
+      options?: { appendToPrevious?: boolean },
+    ) => {
+      const cleaned = text.trim()
+      if (!cleaned) return
+      setTurns(prev => {
+        if (options?.appendToPrevious && prev.length > 0) {
+          const last = prev[prev.length - 1]
+          const sameLabel =
+            (last.speakerLabel ?? (last.speaker === 'Joy' ? 'Joy' : 'You')) ===
+            (speakerLabel ?? (speaker === 'Joy' ? 'Joy' : 'You'))
+          if (last.speaker === speaker && sameLabel) {
+            return [...prev.slice(0, -1), { ...last, text: `${last.text} ${cleaned}` }]
+          }
+        }
+        return [...prev, { speaker, speakerLabel, text: cleaned, id: turnId.current++ }]
+      })
+      if (speaker === 'You') setNod(n => n + 1)
+    },
+    [],
+  )
 
   const sendSpoken = useCallback(
     (text: string) => {
@@ -140,14 +181,14 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
 
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
     if (active.current && data.text.trim()) {
-      addTurn('Joy', data.text)
+      addTurn('Joy', data.text, undefined, { appendToPrevious: true })
       setJoyThinking(false)
       setNod(n => n + 1)
     }
   })
 
   useRTVIClientEvent(RTVIEvent.UserTranscript, (data: { text: string; final: boolean }) => {
-    if (active.current && data.final) addTurn('You', data.text)
+    if (active.current && data.final) addTurn('You', data.text, undefined, { appendToPrevious: true })
   })
 
   useRTVIClientEvent(RTVIEvent.BotReady, () => {
@@ -235,11 +276,27 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
       const img = m.image
       setStoryImages(prev => ({ ...prev, [sid]: img }))
       setWhiskerTraces(prev => [...prev.slice(-9), `in | StoryImageReady | ${sid}`])
+    } else if (
+      type === 'story_route' &&
+      typeof m.story_id === 'string' &&
+      m.route &&
+      typeof m.route === 'object'
+    ) {
+      const sid = m.story_id
+      const rt = m.route as RouteData
+      setStoryRoutes(prev => ({ ...prev, [sid]: rt }))
+      setWhiskerTraces(prev => [...prev.slice(-9), `in | StoryRouteReady | ${sid}`])
     } else if (type === 'story_close') {
       setStoryId(null)
     } else if (type === 'flow_node_transition' && typeof m.node_id === 'string') {
       const spk = (typeof m.speaker === 'string' ? m.speaker : 'joy') as JoyPersona
       setActivePersona(spk)
+      approval.syncStepFromBackend(m.node_id)
+      const matchedStep = currentSteps.find(s => s.id === m.node_id)
+      if (matchedStep?.storyId && STORIES[matchedStep.storyId]) {
+        setStorySession(s => s + 1)
+        setStoryId(matchedStep.storyId)
+      }
       setWhiskerTraces(prev => [
         ...prev.slice(-9),
         `in | FlowTransition | ${m.node_id} (${String(m.step_title ?? '')})`,
@@ -467,6 +524,7 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
     joyThinking,
     storyId,
     setStoryId,
+    openStory,
     storySession,
     storyImages,
     storyRoutes,

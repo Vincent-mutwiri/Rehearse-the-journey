@@ -21,6 +21,12 @@ export default defineConfig({
         target: 'http://localhost:7860',
         changeOrigin: true,
       },
+      // Proxy Maps Routes API calls through Vite to avoid CORS issues in the browser
+      '/maps-routes': {
+        target: 'https://routes.googleapis.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/maps-routes/, '/directions/v2:computeRoutes'),
+      },
     },
   },
 })

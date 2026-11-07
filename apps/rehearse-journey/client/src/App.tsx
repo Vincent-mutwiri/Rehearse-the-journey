@@ -33,12 +33,10 @@ import WelcomeLanding from './presentation/WelcomeLanding'
 import JoyCenterpiece from './presentation/JoyCenterpiece'
 import ApprovalGateCard from './presentation/ApprovalGateCard'
 import CompanionModesPanel from './presentation/CompanionModesPanel'
-
-const TIPS = [
-  'Tip: you can always type instead of speaking — the mic stays off until you turn it on.',
-  'Tip: Pause stops Joy mid-sentence and turns the mic off. Exit ends the session.',
-  'Tip: every change on this page is a rehearsal aid; nothing is saved or sent anywhere else.',
-]
+import SettingsDrawer from './presentation/SettingsDrawer'
+import Dashboard, { type DashboardSection } from './components/Dashboard'
+import Wellness from './components/Wellness'
+import Directions from './components/Directions'
 
 const STATUS_NARRATION: Record<RolePlayState, string> = {
   idle: 'Ready to start. Press Start Rehearsal to connect to Joy.',
@@ -67,6 +65,7 @@ function RehearsalView() {
     joyThinking,
     storyId,
     setStoryId,
+    openStory,
     storySession,
     storyImages,
     storyRoutes,
@@ -106,6 +105,7 @@ function RehearsalView() {
   const [plainWords, setPlainWords] = useState(false)
   const [stopAuto, setStopAuto] = useState(false)
   const [reduceMotion, setReduceMotion] = useState(false)
+  const [currentExchangeOnly, setCurrentExchangeOnly] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   const [aloudSpeaking, setAloudSpeaking] = useState(false)
 
@@ -117,8 +117,10 @@ function RehearsalView() {
   }, [])
 
   const motionReduced = useReducedMotion(reduceMotion)
-  const landing = state === 'idle'
-  const tipsRef = useRef<HTMLDivElement>(null)
+  // Dashboard section — which section the person picked from the dashboard.
+  // null = the dashboard landing; 'simulations' = the scenario picker;
+  // 'directions' = the directions form; 'wellness' = the wellness check-in.
+  const [dashboardSection, setDashboardSection] = useState<DashboardSection | null>(null)
   const statusRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
   const previousState = useRef<RolePlayState>(state)
@@ -131,19 +133,6 @@ function RehearsalView() {
     else if (state === 'connecting' || state === 'paused' || state === 'ended') statusRef.current?.focus()
     else if (state === 'listening' && previous !== 'speaking') document.getElementById('typed-input')?.focus()
   }, [state])
-
-  useEffect(() => {
-    const box = tipsRef.current
-    if (landing || stopAuto || motionReduced || !box) return
-    const slides = Array.from(box.querySelectorAll('.tip-slide'))
-    if (!slides.length) return
-    let i = Math.max(0, slides.findIndex(slide => slide.classList.contains('is-active')))
-    const id = setInterval(() => {
-      i = (i + 1) % slides.length
-      slides.forEach((slide, index) => slide.classList.toggle('is-active', index === i))
-    }, 6000)
-    return () => clearInterval(id)
-  }, [landing, stopAuto, motionReduced])
 
   useEffect(() => {
     if (!readAloud) {
@@ -196,7 +185,56 @@ function RehearsalView() {
     setShowOriginal(false)
   }
 
+  const toggleCurrentExchangeOnly = () => {
+    setCurrentExchangeOnly(prev => !prev)
+  }
+
+  const visibleTurns = useMemo(() => {
+    if (!currentExchangeOnly || turns.length <= 2) return turns
+    const lastTurn = turns[turns.length - 1]
+    if (lastTurn.speaker === 'You') {
+      const prevJoy = [...turns.slice(0, -1)].reverse().find(t => t.speaker === 'Joy')
+      return prevJoy ? [prevJoy, lastTurn] : [lastTurn]
+    }
+    const prevYou = [...turns.slice(0, -1)].reverse().find(t => t.speaker === 'You')
+    return prevYou ? [prevYou, lastTurn] : [lastTurn]
+  }, [currentExchangeOnly, turns])
+
+  const transcriptRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (currentExchangeOnly) return
+    const el = transcriptRef.current
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [turns, joyThinking, currentExchangeOnly])
+
   const isConnected = state === 'listening' || state === 'speaking'
+
+  if (state === 'idle' && !dashboardSection) {
+    return (
+      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-8 px-5 py-8">
+        <Dashboard onSelect={setDashboardSection} />
+      </main>
+    )
+  }
+
+  if (state === 'idle' && dashboardSection === 'wellness') {
+    return (
+      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-6 px-5 py-8">
+        <Wellness onBack={() => setDashboardSection(null)} />
+      </main>
+    )
+  }
+
+  if (state === 'idle' && dashboardSection === 'directions') {
+    return (
+      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-6 px-5 py-8">
+        <Directions onBack={() => setDashboardSection(null)} />
+      </main>
+    )
+  }
 
   if (state === 'idle') {
     return (
@@ -207,6 +245,7 @@ function RehearsalView() {
         chaosLevel={chaosLevel}
         onSelectChaosLevel={setChaosLevel}
         onStartScenario={(scenId, lvl) => void handleStart(scenId, lvl, mode)}
+        onBackToDashboard={() => setDashboardSection(null)}
         error={error}
       />
     )
@@ -233,7 +272,91 @@ function RehearsalView() {
         onCloseStory={() => setStoryId(null)}
       />
 
-      <div className="flex flex-col gap-5 lg:max-h-[calc(100vh-5rem)] lg:flex-[1.4] lg:overflow-y-auto">
+      <div className="rehearsal-conversation flex min-w-0 flex-col gap-4 lg:flex-[1.4]">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-lg font-semibold">Conversation</h2>
+            <button
+              type="button"
+              aria-pressed={currentExchangeOnly}
+              onClick={toggleCurrentExchangeOnly}
+              title="Toggle between showing only the current conversation exchange or the full scrolling transcript"
+              className={
+                'rounded-full border px-3 py-1 text-xs font-semibold transition-colors ' +
+                (currentExchangeOnly
+                  ? 'border-lavender bg-lavender/25 text-ink'
+                  : 'border-ink/15 bg-white/60 text-ink/80 hover:border-lavender/60')
+              }
+            >
+              {currentExchangeOnly ? 'Current turn only' : 'Show current turn only'}
+            </button>
+          </div>
+          <SettingsDrawer>
+            <fieldset className="min-w-0">
+              <legend className="px-1.5 font-semibold">
+                Accessibility preferences
+              </legend>
+              <div className="mt-3 grid gap-3">
+                {(
+                  [
+                    {
+                      key: 'readAloud',
+                      on: readAloud,
+                      toggle: toggleReadAloud,
+                      label: readAloud ? '⏹ Stop reading aloud' : '🔊 Read page aloud',
+                      hint: aloudSpeaking ? 'Reading this page’s text now…' : 'Speaks the text on this page',
+                    },
+                    {
+                      key: 'plainWords',
+                      on: plainWords,
+                      toggle: togglePlainWords,
+                      label: plainWords ? 'Aa Plainer words — on' : 'Aa Plainer words',
+                      hint: 'Rewrites the step card in plain language',
+                    },
+                    {
+                      key: 'currentExchangeOnly',
+                      on: currentExchangeOnly,
+                      toggle: toggleCurrentExchangeOnly,
+                      label: currentExchangeOnly
+                        ? '💬 Current exchange only — on'
+                        : '💬 Current exchange only',
+                      hint: 'Shows only the latest turn instead of scrolling through history',
+                    },
+                    {
+                      key: 'stopAuto',
+                      on: stopAuto,
+                      toggle: toggleStopAuto,
+                      label: '⏸ Stop auto-advance',
+                      hint: 'Holds still anything that moves on a timer',
+                    },
+                    {
+                      key: 'reduceMotion',
+                      on: reduceMotion,
+                      toggle: toggleReduceMotion,
+                      label: '🐢 Reduce motion',
+                      hint: 'Stops animations and transitions on this page',
+                    },
+                  ] as const
+                ).map(p => (
+                  <button
+                    key={p.key}
+                    aria-pressed={p.on}
+                    onClick={p.toggle}
+                    className={
+                      'min-h-[56px] rounded-xl border px-4 py-2.5 text-left text-sm font-semibold transition-colors ' +
+                      (p.on
+                        ? 'border-lavender bg-lavender/25'
+                        : 'border-ink/15 bg-white/60 hover:border-lavender/60')
+                    }
+                  >
+                    {p.label}
+                    <span className="mt-1 block text-xs font-normal opacity-75">{p.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          </SettingsDrawer>
+        </header>
         {readAloud && (
           <Button
             variant="outline"
@@ -250,85 +373,6 @@ function RehearsalView() {
         )}
 
         <div
-          role="note"
-          aria-label="Fictional scenario notice"
-          className="rounded-2xl border border-peach bg-peach/20 p-4 text-sm leading-relaxed"
-        >
-          <strong>Practice scenario — not a real hospital.</strong> This conversation is fictional
-          and used only for rehearsal. Use made-up details. Starting connects to an AI provider;
-          typed messages and any enabled microphone audio are sent for replies. The mic starts off.
-          This app does not save the transcript.
-        </div>
-
-        <fieldset className="rounded-2xl border border-ink/10 bg-white/70 p-5">
-          <legend className="px-1.5 font-semibold">
-            Accessibility preferences{' '}
-            <span className="font-normal opacity-70">(toolkit adapters, applied to this page)</span>
-          </legend>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2" role="group" aria-label="Accessibility preferences">
-            {(
-              [
-                {
-                  key: 'readAloud',
-                  on: readAloud,
-                  toggle: toggleReadAloud,
-                  label: readAloud ? '⏹ Stop reading aloud' : '🔊 Read page aloud',
-                  hint: aloudSpeaking ? 'Reading this page’s text now…' : 'Speaks the text on this page',
-                },
-                {
-                  key: 'plainWords',
-                  on: plainWords,
-                  toggle: togglePlainWords,
-                  label: plainWords ? 'Aa Plainer words — on' : 'Aa Plainer words',
-                  hint: 'Rewrites the step card in plain language',
-                },
-                {
-                  key: 'stopAuto',
-                  on: stopAuto,
-                  toggle: toggleStopAuto,
-                  label: '⏸ Stop auto-advance',
-                  hint: 'Holds still anything that moves on a timer',
-                },
-                {
-                  key: 'reduceMotion',
-                  on: reduceMotion,
-                  toggle: toggleReduceMotion,
-                  label: '🐢 Reduce motion',
-                  hint: 'Stops animations and transitions on this page',
-                },
-              ] as const
-            ).map(p => (
-              <button
-                key={p.key}
-                aria-pressed={p.on}
-                onClick={p.toggle}
-                className={
-                  'min-h-[56px] rounded-xl border px-4 py-2.5 text-left text-sm font-semibold transition-colors ' +
-                  (p.on
-                    ? 'border-lavender bg-lavender/25'
-                    : 'border-ink/15 bg-white/60 hover:border-lavender/60')
-                }
-              >
-                {p.label}
-                <span className="mt-1 block text-xs font-normal opacity-75">{p.hint}</span>
-              </button>
-            ))}
-          </div>
-        </fieldset>
-
-        <div
-          ref={tipsRef}
-          className="tips-carousel min-h-[52px] rounded-2xl border border-dashed border-lavender bg-mist/50 px-4 py-3 text-sm"
-          aria-label="Rehearsal tips"
-        >
-          {TIPS.map((tip, i) => (
-            <div key={i} className={`tip-slide${i === 0 ? ' is-active' : ''}`}>
-              {tip}
-            </div>
-          ))}
-        </div>
-
-        <div
           ref={statusRef}
           tabIndex={-1}
           role="status"
@@ -338,17 +382,19 @@ function RehearsalView() {
         >
           {(isConnected || state === 'connecting') && (
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
-              <AudioVisualizerBar
-                participantType="bot"
-                isConnecting={state === 'connecting'}
-                reduceMotion={motionReduced || stopAuto}
-                barColor={state === 'speaking' ? '--lavender' : '--sage'}
-                barCount={28}
-                barWidth={4}
-                barGap={4}
-                barMaxHeight={44}
-                className="h-11 max-w-full flex-1"
-              />
+              <div className="rehearsal-audio-container min-w-0 flex-1">
+                <AudioVisualizerBar
+                  participantType="bot"
+                  isConnecting={state === 'connecting'}
+                  reduceMotion={motionReduced || stopAuto}
+                  barColor={state === 'speaking' ? '--lavender' : '--sage'}
+                  barCount={28}
+                  barWidth={4}
+                  barGap={4}
+                  barMaxHeight={44}
+                  className="rehearsal-audio-meter h-11 max-w-full flex-1"
+                />
+              </div>
               <p className="min-w-0 text-sm">
                 {state === 'speaking'
                   ? '🔊 Joy is speaking…'
@@ -391,16 +437,23 @@ function RehearsalView() {
         )}
 
         <section
+          ref={transcriptRef}
           aria-label="Conversation transcript"
           role="log"
           aria-relevant="additions"
           aria-live="polite"
-          className="max-h-[320px] min-h-[200px] overflow-y-auto rounded-2xl border border-ink/10 bg-mist/40 p-5 text-base"
+          className="rehearsal-transcript max-h-[320px] min-h-[200px] overflow-y-auto rounded-2xl border border-ink/10 bg-mist/40 p-5 text-base"
         >
-          {turns.length === 0 && !joyThinking && (
+          {visibleTurns.length === 0 && !joyThinking && (
             <p className="opacity-60">The conversation will appear here.</p>
           )}
-          {turns.map(t => (
+          {currentExchangeOnly && turns.length > visibleTurns.length && (
+            <p className="mb-2.5 text-xs opacity-65">
+              Showing current exchange ({turns.length - visibleTurns.length} earlier{' '}
+              {turns.length - visibleTurns.length === 1 ? 'message' : 'messages'} hidden)
+            </p>
+          )}
+          {visibleTurns.map(t => (
             <div
               key={t.id}
               className={
@@ -434,24 +487,6 @@ function RehearsalView() {
           )}
         </section>
 
-        <section aria-label="What to expect" className="rounded-2xl border border-ink/10 bg-white/70 p-5">
-          <h2 className="mb-2 text-base font-semibold">What to expect</h2>
-          <p className={plainWords ? 'mb-3' : ''}>
-            {plainWords && !showOriginal ? simplifyStepText(ORIGINAL_STEP_TEXT) : ORIGINAL_STEP_TEXT}
-          </p>
-          {plainWords && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full"
-              onClick={() => setShowOriginal(o => !o)}
-              aria-pressed={showOriginal}
-            >
-              {showOriginal ? 'Show plainer words' : 'Show original'}
-            </Button>
-          )}
-        </section>
-
         <div className="flex items-end gap-3">
           <textarea
             id="typed-input"
@@ -479,7 +514,7 @@ function RehearsalView() {
           </Button>
         </div>
 
-        <div className="flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
+        <div className="rehearsal-controls flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
           {isConnected && (
             <Button
               variant="secondary"
@@ -543,58 +578,84 @@ function RehearsalView() {
           onRespond={approval.respondToProposal}
         />
 
-        <CompanionModesPanel
-          mode={mode}
-          onSelectMode={handleSelectMode}
-          scenarioId={scenarioId}
-          chaosLevel={chaosLevel}
-          currentStepIndex={approval.controllerSnap.currentStepIndex}
-          currentSteps={currentSteps}
-          currentStepDef={currentStepDef}
-          plainWords={plainWords}
-          savedChecklist={approval.controllerSnap.savedChecklist}
-          audioPref={audioPref}
-          onToggleAudioPref={handleToggleAudioPref}
-          cameraConsent={cameraConsent}
-          onRequestCameraConsent={approval.proposeEnableCamera}
-          onRevokeCameraConsent={() => setCameraConsent(false)}
-          onProposeNext={approval.proposeNext}
-          onProposeBack={approval.proposeBack}
-          onProposeSaveChecklist={approval.proposeSaveChecklist}
-          onApproveLearnPlan={titles => {
-            approval.editChecklistDraft(titles)
-            handleSelectMode('practise')
-          }}
-          isDevMode={isDevMode}
-          activePersona={activePersona}
-          parallelOverlap={parallelOverlap}
-          onTriggerDevParallelOverlap={() => {
-            const nextOverlap = !parallelOverlap
-            setParallelOverlap(nextOverlap)
-            setActivePersona(nextOverlap ? 'joy' : 'amani')
-            if (nextOverlap) {
-              addTurn(
-                'Joy',
-                'Receptionist Joy: Desk 1 is ready for you! · Patient Amani: Take your time, friend—I can hold your seat.',
-                'Joy & Amani',
-              )
+        <details className="rehearsal-disclosure">
+          <summary>What to expect</summary>
+          <div className="pt-3">
+            <p className={plainWords ? 'mb-3' : ''}>
+              {plainWords && !showOriginal ? simplifyStepText(ORIGINAL_STEP_TEXT) : ORIGINAL_STEP_TEXT}
+            </p>
+            {plainWords && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                onClick={() => setShowOriginal(o => !o)}
+                aria-pressed={showOriginal}
+              >
+                {showOriginal ? 'Show plainer words' : 'Show original'}
+              </Button>
+            )}
+          </div>
+        </details>
+
+        <details className="rehearsal-disclosure">
+          <summary>Journey &amp; modes</summary>
+          <CompanionModesPanel
+            mode={mode}
+            onSelectMode={handleSelectMode}
+            scenarioId={scenarioId}
+            chaosLevel={chaosLevel}
+            currentStepIndex={approval.controllerSnap.currentStepIndex}
+            currentSteps={currentSteps}
+            currentStepDef={currentStepDef}
+            plainWords={plainWords}
+            savedChecklist={approval.controllerSnap.savedChecklist}
+            audioPref={audioPref}
+            onToggleAudioPref={handleToggleAudioPref}
+            cameraConsent={cameraConsent}
+            onRequestCameraConsent={approval.proposeEnableCamera}
+            onRevokeCameraConsent={() => setCameraConsent(false)}
+            onProposeNext={approval.proposeNext}
+            onProposeBack={approval.proposeBack}
+            onProposeSaveChecklist={approval.proposeSaveChecklist}
+            onOpenStory={() =>
+              openStory(currentStepDef?.storyId ?? currentScenario.defaultStoryId)
             }
-          }}
-          activeProviderStack={activeProviderStack}
-          providerStackId={providerStackId}
-          onSimulateProviderFallback={() => {
-            const supported = PROVIDER_STACK_OPTIONS.filter(p => !p.previewOnly)
-            const curIdx = supported.findIndex(p => p.id === providerStackId)
-            const nextMeta = supported[(curIdx + 1) % supported.length]
-            setProviderStackId(nextMeta.id)
-            setUsesBrowserStt(nextMeta.usesBrowserStt)
-            setProviderNotice(
-              `Switched provider stack to ${nextMeta.label} (fallback chain verified).`,
-            )
-          }}
-          providerNotice={providerNotice}
-          whiskerTraces={whiskerTraces}
-        />
+            onApproveLearnPlan={titles => {
+              approval.editChecklistDraft(titles)
+              handleSelectMode('practise')
+            }}
+            isDevMode={isDevMode}
+            activePersona={activePersona}
+            parallelOverlap={parallelOverlap}
+            onTriggerDevParallelOverlap={() => {
+              const nextOverlap = !parallelOverlap
+              setParallelOverlap(nextOverlap)
+              setActivePersona(nextOverlap ? 'joy' : 'amani')
+              if (nextOverlap) {
+                addTurn(
+                  'Joy',
+                  'Receptionist Joy: Desk 1 is ready for you! · Patient Amani: Take your time, friend—I can hold your seat.',
+                  'Joy & Amani',
+                )
+              }
+            }}
+            activeProviderStack={activeProviderStack}
+            providerStackId={providerStackId}
+            onSimulateProviderFallback={() => {
+              const supported = PROVIDER_STACK_OPTIONS.filter(p => !p.previewOnly)
+              const curIdx = supported.findIndex(p => p.id === providerStackId)
+              const nextMeta = supported[(curIdx + 1) % supported.length]
+              setProviderStackId(nextMeta.id)
+              setUsesBrowserStt(nextMeta.usesBrowserStt)
+              setProviderNotice(
+                `Switched provider stack to ${nextMeta.label} (fallback chain verified).`,
+              )
+            }}
+            providerNotice={providerNotice}
+            whiskerTraces={whiskerTraces}
+          />
+        </details>
       </div>
 
       {/* Pipecat audio element (rendered only when connected and voice output is enabled) */}

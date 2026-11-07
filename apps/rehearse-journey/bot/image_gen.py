@@ -71,6 +71,18 @@ _SCENES: Dict[str, str] = {
         "painted shop sign, a small roundabout), and a person asking a "
         "passerby for directions. Warm afternoon light."
     ),
+    "matatu-diversion-route": (
+        "A friendly matatu conductor pointing out a calm, shaded pedestrian "
+        "walkway next to a small roundabout stage in Nairobi."
+    ),
+    "gov-counter-5-outage": (
+        "A calm public service hall where a friendly officer hands a visitor "
+        "a paper queue card pointing toward Counter 5."
+    ),
+    "directions-detour": (
+        "A quiet, wide pedestrian arcade next to a green bookshop leading "
+        "toward a community library courtyard."
+    ),
 }
 
 _FALLBACK_SCENE = "A hospital waiting area with a reception desk and soft chairs."

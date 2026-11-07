@@ -22,6 +22,7 @@ export interface FlowStepDef {
   requiresApproval?: boolean
   handoffTo?: JoyPersona
   parallelFanout?: boolean
+  storyId?: string
 }
 
 export interface ScenarioDef {
@@ -30,6 +31,7 @@ export interface ScenarioDef {
   persona: JoyPersona
   personaLabel: string
   badge: string
+  defaultStoryId: string
   stepsByLevel: Record<1 | 2 | 3 | 4, FlowStepDef[]>
 }
 
@@ -71,6 +73,7 @@ const HOSPITAL_BASE_STEPS: FlowStepDef[] = [
       'Joy explains how to reach Waiting Area B on the left and checks whether you want to repeat the step or wrap up.',
     simplifiedDescription:
       'Joy points you to Waiting Area B on the left. You can repeat or finish when ready.',
+    storyId: 'hospital-waiting-area',
   },
   {
     id: 'close',
@@ -92,6 +95,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
     persona: 'joy',
     personaLabel: 'Receptionist Joy',
     badge: 'Hospital Reception',
+    defaultStoryId: 'hospital-waiting-area',
     stepsByLevel: {
       1: HOSPITAL_BASE_STEPS,
       2: [
@@ -104,8 +108,24 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           simplifiedDescription:
             'Say yes or no for the pretend card, and pick General Clinic or Dental Desk.',
         },
-        HOSPITAL_BASE_STEPS[2],
-        HOSPITAL_BASE_STEPS[3],
+        {
+          id: 'confirm_morning_slot',
+          title: '3. Confirming morning vs afternoon slot',
+          speaker: 'joy',
+          speakerLabel: 'Receptionist Joy',
+          description:
+            'Joy asks whether your pretend appointment is for the morning session or afternoon session.',
+          simplifiedDescription:
+            'Say whether your pretend visit is for the morning or afternoon session.',
+        },
+        {
+          ...HOSPITAL_BASE_STEPS[2],
+          title: '4. Directions to Waiting Area B',
+        },
+        {
+          ...HOSPITAL_BASE_STEPS[3],
+          title: '5. Complete or repeat practice',
+        },
       ],
       3: [
         HOSPITAL_BASE_STEPS[0],
@@ -120,8 +140,12 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           simplifiedDescription:
             'Waiting Area B moved to Room 4 across the hall. Joy helps you adjust calmly.',
           requiresApproval: true,
+          storyId: 'hospital-room-4',
         },
-        HOSPITAL_BASE_STEPS[2],
+        {
+          ...HOSPITAL_BASE_STEPS[2],
+          storyId: 'hospital-room-4',
+        },
         HOSPITAL_BASE_STEPS[3],
       ],
       4: [
@@ -138,6 +162,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           simplifiedDescription:
             'You chat briefly with Amani, a friendly visitor in Waiting Area B.',
           requiresApproval: true,
+          storyId: 'hospital-waiting-area',
         },
         {
           id: 'parallel_call_back',
@@ -162,6 +187,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
     persona: 'otieno',
     personaLabel: 'Conductor Otieno',
     badge: 'Matatu Stage · Route 46',
+    defaultStoryId: 'matatu-stage-route',
     stepsByLevel: {
       1: [
         {
@@ -188,6 +214,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           speakerLabel: 'Conductor Otieno',
           description: 'Practise politely calling out your pretend drop-off stage before the matatu arrives.',
           simplifiedDescription: 'Say "Stop at the next stage please" when your pretend stop is near.',
+          storyId: 'matatu-stage-route',
         },
         {
           id: 'close',
@@ -199,9 +226,146 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           requiresApproval: true,
         },
       ],
-      2: [],
-      3: [],
-      4: [],
+      2: [
+        {
+          id: 'greet',
+          title: '1. Ask Conductor Otieno the route & fare',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Ask Conductor Otieno if the matatu goes toward town and check the pretend off-peak fare.',
+          simplifiedDescription: 'Ask Otieno if this matatu goes to town and how much the pretend fare is.',
+        },
+        {
+          id: 'confirm_payment',
+          title: '2. Pretend payment method & seat choice',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Choose between pretend M-Pesa or pretend cash for the 50 shillings fare, and pick a door or window seat.',
+          simplifiedDescription: 'Pick pretend M-Pesa or cash, and choose a door or window seat.',
+          requiresApproval: true,
+        },
+        {
+          id: 'confirm_landmark_alert',
+          title: '3. Ask conductor for a stage reminder',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Ask Otieno to alert you when the matatu passes the roundabout just before your pretend stage.',
+          simplifiedDescription: 'Ask Otieno to tell you when the matatu passes the roundabout.',
+        },
+        {
+          id: 'request_stop',
+          title: '4. Calling out your stage (Shukisha)',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Practise politely calling out your pretend drop-off stage before the matatu arrives.',
+          simplifiedDescription: 'Say "Stop at the next stage please" when your pretend stop is near.',
+          storyId: 'matatu-stage-route',
+        },
+        {
+          id: 'close',
+          title: '5. Matatu practice complete',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Your fictional matatu journey rehearsal is complete.',
+          simplifiedDescription: 'Matatu practice is finished!',
+          requiresApproval: true,
+        },
+      ],
+      3: [
+        {
+          id: 'greet',
+          title: '1. Ask Conductor Otieno the route & fare',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Ask Conductor Otieno if the matatu goes toward town and check the pretend off-peak fare.',
+          simplifiedDescription: 'Ask Otieno if this matatu goes to town and how much the pretend fare is.',
+        },
+        {
+          id: 'confirm_payment',
+          title: '2. Fare check + stage diversion notice',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Otieno mentions roadworks closed Stage 3, so passengers are alighting at the Roundabout Stage 100 metres earlier.',
+          simplifiedDescription: 'Stage 3 is closed for roadworks, so you will alight at the Roundabout Stage nearby.',
+          requiresApproval: true,
+        },
+        {
+          id: 'stage_diversion',
+          title: '2b. Diversion branch: Roundabout Stage drop-off',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Otieno explains the shaded walkway from the Roundabout Stage and checks that you feel ready.',
+          simplifiedDescription: 'Otieno explains the easy walkway from the Roundabout Stage.',
+          storyId: 'matatu-stage-route',
+        },
+        {
+          id: 'request_stop',
+          title: '3. Alighting at the Roundabout Stage',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Call out your stop calmly as the matatu approaches the Roundabout Stage.',
+          simplifiedDescription: 'Say "Shukisha at the roundabout stage, please."',
+          storyId: 'matatu-stage-route',
+        },
+        {
+          id: 'close',
+          title: '4. Matatu practice complete',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Your fictional matatu journey rehearsal is complete.',
+          simplifiedDescription: 'Matatu practice is finished!',
+          requiresApproval: true,
+        },
+      ],
+      4: [
+        {
+          id: 'greet',
+          title: '1. Ask Conductor Otieno the route & fare',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Ask Conductor Otieno if the matatu goes toward town and check the pretend off-peak fare.',
+          simplifiedDescription: 'Ask Otieno if this matatu goes to town and how much the pretend fare is.',
+        },
+        {
+          id: 'confirm_payment',
+          title: '2. Boarding a busy matatu',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Confirm your seat near the door next to fellow passenger Amani.',
+          simplifiedDescription: 'Take the seat by the door next to Amani.',
+          requiresApproval: true,
+        },
+        {
+          id: 'passenger_handoff',
+          title: '3. Seat chat (Handoff to Passenger Amani)',
+          speaker: 'amani',
+          speakerLabel: 'Passenger Amani',
+          handoffTo: 'amani',
+          description: 'Fellow passenger Amani greets you warmly and asks if you are also alighting at the Hospital Road stage.',
+          simplifiedDescription: 'Chat briefly with Amani about watching for the stage sign together.',
+          storyId: 'matatu-stage-route',
+        },
+        {
+          id: 'parallel_stage_call',
+          title: '4. Parallel overlap: Otieno & Amani speak at the stage',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno & Passenger Amani',
+          handoffTo: 'otieno',
+          parallelFanout: true,
+          description: 'Otieno calls out "Hospital Stage next!" while Amani offers to let you pass first. Reply to either person.',
+          simplifiedDescription: 'Otieno calls your stage while Amani steps aside. Reply to either one.',
+          requiresApproval: true,
+        },
+        {
+          id: 'close',
+          title: '5. Matatu practice complete',
+          speaker: 'otieno',
+          speakerLabel: 'Conductor Otieno',
+          description: 'Your fictional matatu journey rehearsal is complete.',
+          simplifiedDescription: 'Matatu practice is finished!',
+          requiresApproval: true,
+        },
+      ],
     },
   },
   government: {
@@ -210,6 +374,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
     persona: 'wanjiku',
     personaLabel: 'Officer Wanjiku',
     badge: 'Government Service Desk',
+    defaultStoryId: 'gov-counter-directions',
     stepsByLevel: {
       1: [
         {
@@ -236,6 +401,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           speakerLabel: 'Officer Wanjiku',
           description: 'Wanjiku gives you pretend ticket B-12 for Counter 3 and checks if the directions are clear.',
           simplifiedDescription: 'Take pretend ticket B-12 for Counter 3 and ask to repeat if needed.',
+          storyId: 'gov-counter-directions',
         },
         {
           id: 'close',
@@ -247,9 +413,146 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           requiresApproval: true,
         },
       ],
-      2: [],
-      3: [],
-      4: [],
+      2: [
+        {
+          id: 'greet',
+          title: '1. Arrive at the inquiry counter',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Greet Officer Wanjiku and state which pretend public service inquiry you are making today.',
+          simplifiedDescription: 'Say hello to Wanjiku and name the pretend form you need help with.',
+        },
+        {
+          id: 'check_documents',
+          title: '2. Pretend slip & service category (Desk A or B)',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Confirm your pretend slip and choose Desk A (Pretend ID Replacement) or Desk B (Pretend Certificate Inquiry).',
+          simplifiedDescription: 'Say yes or no for the pretend slip and pick Desk A or Desk B.',
+          requiresApproval: true,
+        },
+        {
+          id: 'confirm_counter_steps',
+          title: '3. What to expect at Counter 3',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Wanjiku explains how Counter 3 calls numbers and offers to write Counter 3 on your pretend slip.',
+          simplifiedDescription: 'Ask Wanjiku to write Counter 3 on your pretend slip.',
+        },
+        {
+          id: 'queue_ticket',
+          title: '4. Receive pretend counter ticket B-12',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Wanjiku gives you pretend ticket B-12 for Counter 3 and checks if the directions are clear.',
+          simplifiedDescription: 'Take pretend ticket B-12 for Counter 3 and ask to repeat if needed.',
+          storyId: 'gov-counter-directions',
+        },
+        {
+          id: 'close',
+          title: '5. Service desk practice complete',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Your fictional government desk rehearsal is complete.',
+          simplifiedDescription: 'Service desk practice is finished!',
+          requiresApproval: true,
+        },
+      ],
+      3: [
+        {
+          id: 'greet',
+          title: '1. Arrive at the inquiry counter',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Greet Officer Wanjiku and state which pretend public service inquiry you are making today.',
+          simplifiedDescription: 'Say hello to Wanjiku and name the pretend form you need help with.',
+        },
+        {
+          id: 'check_documents',
+          title: '2. Slip check + ticket screen outage notice',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'The digital ticket printer is offline, so Wanjiku issues paper queue card B-12 for Counter 5 instead of Counter 3.',
+          simplifiedDescription: 'The ticket screen is off, so Wanjiku gives you a paper card for Counter 5.',
+          requiresApproval: true,
+        },
+        {
+          id: 'queue_outage_diversion',
+          title: '2b. Diversion branch: Paper queue at Counter 5',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Wanjiku reassures you that staff at Counter 5 call numbers aloud from the paper queue.',
+          simplifiedDescription: 'Staff at Counter 5 will call your ticket number out loud.',
+          storyId: 'gov-counter-directions',
+        },
+        {
+          id: 'queue_ticket',
+          title: '3. Confirming Counter 5 paper queue',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Take pretend paper card B-12 for Counter 5 and confirm the hallway directions.',
+          simplifiedDescription: 'Take pretend paper card B-12 and head to Counter 5.',
+          storyId: 'gov-counter-directions',
+        },
+        {
+          id: 'close',
+          title: '4. Service desk practice complete',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Your fictional government desk rehearsal is complete.',
+          simplifiedDescription: 'Service desk practice is finished!',
+          requiresApproval: true,
+        },
+      ],
+      4: [
+        {
+          id: 'greet',
+          title: '1. Arrive at the inquiry counter',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Greet Officer Wanjiku and state which pretend public service inquiry you are making today.',
+          simplifiedDescription: 'Say hello to Wanjiku and name the pretend form you need help with.',
+        },
+        {
+          id: 'check_documents',
+          title: '2. Pretend slip check (busy service hall)',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Wanjiku hands you pretend ticket B-12 and points you toward the waiting bench where Citizen Amani is seated.',
+          simplifiedDescription: 'Take pretend ticket B-12 to the waiting bench near Amani.',
+          requiresApproval: true,
+        },
+        {
+          id: 'waiting_bench_handoff',
+          title: '3. Waiting bench (Handoff to Citizen Amani)',
+          speaker: 'amani',
+          speakerLabel: 'Citizen Amani',
+          handoffTo: 'amani',
+          description: 'Fellow citizen Amani greets you on the waiting bench and compares pretend ticket numbers.',
+          simplifiedDescription: 'Chat with Amani on the bench while waiting for ticket B-12.',
+          storyId: 'gov-counter-directions',
+        },
+        {
+          id: 'parallel_counter_call',
+          title: '4. Parallel overlap: Wanjiku & Amani speak together',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku & Citizen Amani',
+          handoffTo: 'wanjiku',
+          parallelFanout: true,
+          description: 'Officer Wanjiku calls ticket B-12 for Counter 3 while Amani points out the window. Reply to either person.',
+          simplifiedDescription: 'Wanjiku calls B-12 while Amani points to Counter 3. Reply to either one.',
+          requiresApproval: true,
+        },
+        {
+          id: 'close',
+          title: '5. Service desk practice complete',
+          speaker: 'wanjiku',
+          speakerLabel: 'Officer Wanjiku',
+          description: 'Your fictional government desk rehearsal is complete.',
+          simplifiedDescription: 'Service desk practice is finished!',
+          requiresApproval: true,
+        },
+      ],
     },
   },
   directions: {
@@ -258,6 +561,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
     persona: 'maina',
     personaLabel: 'Passerby Maina',
     badge: 'Street Landmarks',
+    defaultStoryId: 'directions-landmarks',
     stepsByLevel: {
       1: [
         {
@@ -276,6 +580,7 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           description: 'Repeat back Maina’s two landmarks: past the green bookshop, then left at the clock tower.',
           simplifiedDescription: 'Repeat back: past the green bookshop, left at the clock tower.',
           requiresApproval: true,
+          storyId: 'directions-landmarks',
         },
         {
           id: 'close',
@@ -287,19 +592,143 @@ export const SCENARIO_CATALOG: Record<ScenarioId, ScenarioDef> = {
           requiresApproval: true,
         },
       ],
-      2: [],
-      3: [],
-      4: [],
+      2: [
+        {
+          id: 'greet',
+          title: '1. Ask Passerby Maina for a landmark',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Politely ask Maina for directions to the pretend community library or clinic stage.',
+          simplifiedDescription: 'Ask Maina which way the pretend library is.',
+        },
+        {
+          id: 'confirm_landmark',
+          title: '2. Landmarks & pedestrian zebra crossing',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Repeat back the green bookshop, the zebra crossing, and the left turn at the clock tower.',
+          simplifiedDescription: 'Repeat: green bookshop, zebra crossing, then left at the clock tower.',
+          requiresApproval: true,
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'ask_backup_landmark',
+          title: '3. Confirming a backup landmark (yellow bakery)',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Maina shares a backup landmark (if you see the yellow bakery, you went one block too far).',
+          simplifiedDescription: 'Remember: if you see the yellow bakery, step back to the clock tower.',
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'close',
+          title: '4. Directions practice complete',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Your fictional directions rehearsal is complete.',
+          simplifiedDescription: 'Directions practice is finished!',
+          requiresApproval: true,
+        },
+      ],
+      3: [
+        {
+          id: 'greet',
+          title: '1. Ask Passerby Maina for a landmark',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Politely ask Maina for directions to the pretend community library or clinic stage.',
+          simplifiedDescription: 'Ask Maina which way the pretend library is.',
+        },
+        {
+          id: 'confirm_landmark',
+          title: '2. Landmark check + footpath detour notice',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'The clock-tower sidewalk is fenced for paving, so Maina suggests turning left one block earlier at the Post Office Arcade.',
+          simplifiedDescription: 'The clock-tower sidewalk is closed; turn left at the Post Office Arcade instead.',
+          requiresApproval: true,
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'detour_diversion',
+          title: '2b. Diversion branch: Post Office Arcade walkway',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Maina explains the wide, quiet walkway through the Post Office Arcade to the library courtyard.',
+          simplifiedDescription: 'Walk past the green bookshop and turn left through the Post Office Arcade.',
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'confirm_detour',
+          title: '3. Reviewing the detour landmarks',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Confirm the two detour landmarks (green bookshop, then Post Office Arcade).',
+          simplifiedDescription: 'Repeat back: green bookshop, then Post Office Arcade.',
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'close',
+          title: '4. Directions practice complete',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Your fictional directions rehearsal is complete.',
+          simplifiedDescription: 'Directions practice is finished!',
+          requiresApproval: true,
+        },
+      ],
+      4: [
+        {
+          id: 'greet',
+          title: '1. Ask Passerby Maina for a landmark',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Politely ask Maina for directions to the pretend community library or clinic stage.',
+          simplifiedDescription: 'Ask Maina which way the pretend library is.',
+        },
+        {
+          id: 'confirm_landmark',
+          title: '2. First landmark on a busy street corner',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Walk up to the green bookshop where Shopkeeper Amani can point out the clock-tower turn.',
+          simplifiedDescription: 'Walk to the green bookshop and check in with Shopkeeper Amani.',
+          requiresApproval: true,
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'shopkeeper_handoff',
+          title: '3. At the bookshop (Handoff to Shopkeeper Amani)',
+          speaker: 'amani',
+          speakerLabel: 'Shopkeeper Amani',
+          handoffTo: 'amani',
+          description: 'Shopkeeper Amani greets you outside the green bookshop and points out the clock tower ahead on the left.',
+          simplifiedDescription: 'Amani points out the clock tower at the end of the block.',
+          storyId: 'directions-landmarks',
+        },
+        {
+          id: 'parallel_direction_check',
+          title: '4. Parallel overlap: Maina & Amani reassure you at the corner',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina & Shopkeeper Amani',
+          handoffTo: 'maina',
+          parallelFanout: true,
+          description: 'Maina waves to confirm the turn while Amani wishes you a pleasant walk. Reply to either helper.',
+          simplifiedDescription: 'Maina and Amani both encourage you at the corner. Reply to either one.',
+          requiresApproval: true,
+        },
+        {
+          id: 'close',
+          title: '5. Directions practice complete',
+          speaker: 'maina',
+          speakerLabel: 'Passerby Maina',
+          description: 'Your fictional directions rehearsal is complete.',
+          simplifiedDescription: 'Directions practice is finished!',
+          requiresApproval: true,
+        },
+      ],
     },
   },
-}
-
-// Fill levels 2-4 for non-hospital scenarios from level 1 so every combination is valid
-for (const sid of ['matatu', 'government', 'directions'] as const) {
-  const base = SCENARIO_CATALOG[sid].stepsByLevel[1]
-  SCENARIO_CATALOG[sid].stepsByLevel[2] = base
-  SCENARIO_CATALOG[sid].stepsByLevel[3] = base
-  SCENARIO_CATALOG[sid].stepsByLevel[4] = base
 }
 
 export interface ProviderStackOption {

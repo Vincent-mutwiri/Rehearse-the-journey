@@ -412,4 +412,140 @@ export const STORIES: Record<string, StoryDef> = {
       },
     ],
   },
+
+  'matatu-diversion-route': {
+    id: 'matatu-diversion-route',
+    title: 'The Roundabout Stage diversion',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Stage 3 moved to the Roundabout Stage',
+        body: 'Roadworks closed Stage 3 today, so Route 46 drops passengers at the Roundabout Stage 100 metres earlier with a shaded walkway.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => {
+          const story = STORIES['matatu-diversion-route']
+          if (story?.route && story.route.polyline.length > 0) {
+            return <RealMap route={story.route} caption={story.route.label} />
+          }
+          return (
+            <FictionalMap
+              caption="Fictional route diversion map — not a real matatu route."
+              marker={{ x: 40, y: 105, label: 'Board' }}
+              route={[
+                [68, 105],
+                [140, 105],
+                [215, 65],
+              ]}
+              rooms={[
+                { x: 16, y: 76, w: 52, h: 58, label: 'Stage 1', sub: 'board', tone: 'lavender' },
+                { x: 108, y: 76, w: 62, h: 58, label: 'Roundabout', sub: 'new stop', tone: 'sage' },
+                { x: 194, y: 26, w: 68, h: 56, label: 'Walkway', sub: '100m shaded', tone: 'peach' },
+                { x: 268, y: 76, w: 56, h: 58, label: 'Stage 3', sub: 'closed', tone: 'mist' },
+              ]}
+            />
+          )
+        },
+      },
+      {
+        id: 'recap',
+        title: 'Call out the Roundabout Stage',
+        body: 'Practise telling Conductor Otieno: “Shukisha at the roundabout stage, please.”',
+      },
+    ],
+  },
+
+  'gov-counter-5-outage': {
+    id: 'gov-counter-5-outage',
+    title: 'Paper queue at Counter 5',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Ticket screen offline — head to Counter 5',
+        body: 'When the digital ticket screen is paused, staff hand out paper card B-12 and call numbers aloud at Counter 5.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => {
+          const story = STORIES['gov-counter-5-outage']
+          if (story?.route && story.route.polyline.length > 0) {
+            return <RealMap route={story.route} caption={story.route.label} />
+          }
+          return (
+            <FictionalMap
+              caption="Fictional service hall layout — not a real building."
+              marker={{ x: 42, y: 105, label: 'Inquiry' }}
+              route={[
+                [76, 105],
+                [170, 105],
+                [275, 105],
+              ]}
+              rooms={[
+                { x: 16, y: 60, w: 60, h: 90, label: 'Inquiry', sub: 'paper card', tone: 'lavender' },
+                { x: 108, y: 60, w: 72, h: 90, label: 'Counter 3', sub: 'screen off', tone: 'mist' },
+                { x: 210, y: 60, w: 110, h: 90, label: 'Counter 5', sub: 'paper queue B-12', tone: 'sage' },
+              ]}
+            />
+          )
+        },
+      },
+      {
+        id: 'recap',
+        title: 'Listen for your paper ticket number',
+        body: 'Hold pretend paper card B-12 and listen for the usher at Counter 5.',
+      },
+    ],
+  },
+
+  'directions-detour': {
+    id: 'directions-detour',
+    title: 'Post Office Arcade detour',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Turn left at the Post Office Arcade',
+        body: 'Because the clock-tower sidewalk has paving work, Maina guides you one block earlier through the quiet Post Office Arcade.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => {
+          const story = STORIES['directions-detour']
+          if (story?.route && story.route.polyline.length > 0) {
+            return <RealMap route={story.route} caption={story.route.label} />
+          }
+          return (
+            <FictionalMap
+              caption="Fictional street detour map — not a real location."
+              marker={{ x: 32, y: 105, label: 'Start' }}
+              route={[
+                [42, 105],
+                [122, 105],
+                [195, 148],
+                [280, 148],
+              ]}
+              rooms={[
+                { x: 16, y: 76, w: 54, h: 58, label: 'You', tone: 'lavender' },
+                { x: 92, y: 76, w: 60, h: 58, label: 'Bookshop', sub: 'go past', tone: 'peach' },
+                { x: 172, y: 20, w: 68, h: 54, label: 'Clock tower', sub: 'fenced today', tone: 'mist' },
+                { x: 172, y: 120, w: 72, h: 58, label: 'Arcade', sub: 'turn left', tone: 'sage' },
+                { x: 262, y: 120, w: 62, h: 58, label: 'Library', sub: 'goal', tone: 'lavender' },
+              ]}
+            />
+          )
+        },
+      },
+      {
+        id: 'recap',
+        title: 'Repeat the two detour landmarks',
+        body: 'Practise with Maina: “Past the green bookshop, then left at the Post Office Arcade.”',
+      },
+    ],
+  },
 }

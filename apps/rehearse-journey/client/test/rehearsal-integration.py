@@ -10,6 +10,7 @@ Run against Vite: python3 test/rehearsal-integration.py [http://127.0.0.1:3000]
 """
 
 import os
+import re
 import sys
 from playwright.sync_api import sync_playwright, expect
 
@@ -110,7 +111,11 @@ def main():
 
         def mock_sdk(route):
             response = route.fetch()
-            route.fulfill(response=response, body=response.text() + "\n" + INTEGRATION_SDK_MOCK)
+            source = response.text().replace(
+                'const [dashboardSection, setDashboardSection] = useState(null);',
+                'const [dashboardSection, setDashboardSection] = useState("simulations");',
+            )
+            route.fulfill(response=response, body=source + "\n" + INTEGRATION_SDK_MOCK)
 
         page.route("**/api/**", lambda route: route.abort("blockedbyclient"))
         page.route("**/src/App.tsx*", mock_sdk)
@@ -141,7 +146,7 @@ def main():
         print("PASS 2: Developer simulations and diagnostics are hidden from participant UI by default")
 
         # 3. Approval blocks progression: Deny stays on Step 1; Approve advances to Step 2 and sends approval_response
-        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text("Step 1 of 4")
+        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text(re.compile(r'Step 1 of \d+'))
         page.evaluate("""
           window.testClient.emit('serverMessage', {
             type: 'approval_proposal',
@@ -154,12 +159,12 @@ def main():
         """)
         gate = page.get_by_role("region", name="Approval gate")
         expect(gate).to_be_visible()
-        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text("Step 1 of 4")
+        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text(re.compile(r'Step 1 of \d+'))
 
         # Click Deny -> stays on Step 1 and sends approval_response with approved: false
         page.get_by_role("button", name="Deny (stay put)").click()
         expect(gate).to_have_count(0)
-        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text("Step 1 of 4")
+        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text(re.compile(r'Step 1 of \d+'))
         deny_msg = page.evaluate(
             "window.testCalls.filter(c => c[0] === 'sendClientMessage' && c[1] === 'approval_response').pop()"
         )
@@ -181,7 +186,7 @@ def main():
           });
         """)
         page.get_by_role("button", name="Approve", exact=True).click()
-        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text("Step 2 of 4")
+        expect(page.get_by_label("Rehearsal journey and companion modes")).to_contain_text(re.compile(r'Step 2 of \d+'))
         approve_msg = page.evaluate(
             "window.testCalls.filter(c => c[0] === 'sendClientMessage' && c[1] === 'approval_response').pop()"
         )
@@ -193,6 +198,11 @@ def main():
         print("PASS 3: Approval blocks progression on Deny and advances + syncs with backend on Approve")
 
         # 4. Microphone handling matches provider (Browser STT vs Server STT), syncs permission error, and Pause prevents delayed restarts
+        page.evaluate("""
+          window.testClient.emit('serverMessage', {
+            type: 'provider_selected', stack_id: 'gemini_proxy', uses_browser_stt: true,
+          });
+        """)
         mic_btn = page.get_by_role("button", name="Microphone off", exact=True)
         mic_btn.click()
         expect(page.get_by_role("button", name="Microphone on", exact=True)).to_have_attribute("aria-pressed", "true")
@@ -260,6 +270,7 @@ def main():
         print("PASS 5: story_open renders immediately and updates when async story_image arrives")
 
         expect(page.locator("audio")).to_have_count(1)
+        page.get_by_text('Journey & modes', exact=True).click()
         page.get_by_role("button", name="Voice output: On").click()
         expect(page.get_by_role("button", name="Voice output: Off (Text-only)")).to_have_attribute("aria-pressed", "true")
         expect(page.locator("audio")).to_have_count(0)

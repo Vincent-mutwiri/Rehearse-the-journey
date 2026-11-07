@@ -37,6 +37,20 @@ PipecatClient.prototype.disconnect = async function () {
 """
 
 
+def session_entry(source):
+    # These regressions exercise rehearsal independently of dashboard navigation.
+    return source.replace(
+        'const [dashboardSection, setDashboardSection] = useState(null);',
+        'const [dashboardSection, setDashboardSection] = useState("simulations");',
+    )
+
+
+def toggle_setting(page, name):
+    page.get_by_role('button', name='Settings', exact=True).click()
+    page.get_by_role('dialog', name='Settings', exact=True).get_by_role('button', name=name).click()
+    page.get_by_role('button', name='Close settings').click()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel=os.getenv("PLAYWRIGHT_CHANNEL", "chrome"), args=["--enable-unsafe-swiftshader"])
@@ -46,7 +60,7 @@ def main():
 
         def mock_sdk(route):
             response = route.fetch()
-            route.fulfill(response=response, body=response.text() + "\n" + SDK_MOCK)
+            route.fulfill(response=response, body=session_entry(response.text()) + "\n" + SDK_MOCK)
 
         page.route("**/api/**", lambda route: route.abort("blockedbyclient"))
         page.route("**/src/App.tsx*", mock_sdk)
@@ -57,7 +71,14 @@ def main():
         expect(joy).to_have_attribute("data-state", "idle")
         expect(joy.locator("canvas")).to_have_count(1)
         page.get_by_role("button", name="Hospital Reception").click()
+        expect(page.get_by_role('note')).not_to_be_visible()
+        expect(page.get_by_role('group', name='Accessibility preferences')).not_to_be_visible()
+        page.get_by_role('button', name='Settings', exact=True).click()
         expect(page.get_by_role("note")).to_contain_text("fictional")
+        page.get_by_role('button', name='Close settings').click()
+        expect(page.get_by_role('button', name='Settings', exact=True)).to_be_focused()
+        expect(page.get_by_role('region', name='What to expect', exact=True)).to_have_count(0)
+        assert not page.locator('details').evaluate_all('(sections) => sections.some(s => s.open)')
         draft = page.get_by_role("textbox")
         try:
             expect(page.get_by_label("Connection status")).to_contain_text("Microphone off")
@@ -75,17 +96,17 @@ def main():
         expect(joy).to_have_attribute("data-state", "speaking")
         page.evaluate("window.testClient.emit('botStoppedSpeaking')")
         expect(joy).to_have_attribute("data-state", "listening")
-        page.get_by_role("button", name="🐢 Reduce motion").click()
+        toggle_setting(page, '🐢 Reduce motion')
         expect(joy).to_have_attribute("data-motion", "still")
         page.wait_for_timeout(150)
         still_frame = joy.locator("canvas").screenshot()
         page.wait_for_timeout(250)
         assert joy.locator("canvas").screenshot() == still_frame, "Reduced-motion canvas must stay still"
-        page.get_by_role("button", name="🐢 Reduce motion").click()
+        toggle_setting(page, '🐢 Reduce motion')
         expect(joy).to_have_attribute("data-motion", "animated")
-        page.get_by_role("button", name="⏸ Stop auto-advance").click()
+        toggle_setting(page, '⏸ Stop auto-advance')
         expect(joy).to_have_attribute("data-motion", "still")
-        page.get_by_role("button", name="⏸ Stop auto-advance").click()
+        toggle_setting(page, '⏸ Stop auto-advance')
         page.emulate_media(reduced_motion="reduce")
         expect(joy).to_have_attribute("data-motion", "still")
         page.emulate_media(reduced_motion="no-preference")

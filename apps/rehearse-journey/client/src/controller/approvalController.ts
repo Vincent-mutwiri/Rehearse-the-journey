@@ -101,6 +101,16 @@ export class RehearsalApprovalController {
     this.state.pendingProposal = null
   }
 
+  public syncStepFromBackend(stepId: string): boolean {
+    const idx = this.state.validSteps.indexOf(stepId)
+    if (idx === -1 || idx === this.state.currentStepIndex) {
+      return false
+    }
+    this.state.currentStepIndex = idx
+    this.state.stateRevision++
+    return true
+  }
+
   public setSimulateWriteFailure(fail: boolean): void {
     this.simulateWriteFailure = fail
   }

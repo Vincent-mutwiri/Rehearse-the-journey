@@ -25,6 +25,7 @@ export interface WelcomeLandingProps {
   onSelectChaosLevel: (lvl: 1 | 2 | 3 | 4) => void
   onStartScenario: (scenarioId: ScenarioId, level: 1 | 2 | 3 | 4) => void
   error: string
+  onBackToDashboard?: () => void
 }
 
 export default function WelcomeLanding({
@@ -35,6 +36,7 @@ export default function WelcomeLanding({
   onSelectChaosLevel,
   onStartScenario,
   error,
+  onBackToDashboard,
 }: WelcomeLandingProps) {
   return (
     <main className="welcome-shell">
@@ -45,7 +47,18 @@ export default function WelcomeLanding({
             Kioo<span className="welcome-brand-subtitle">Your practice companion</span>
           </span>
         </div>
-        <span className="welcome-nav-note">A space to try, at your pace.</span>
+        <div className="welcome-nav-right">
+          {onBackToDashboard && (
+            <button
+              type="button"
+              className="welcome-back-btn"
+              onClick={onBackToDashboard}
+            >
+              ← Dashboard
+            </button>
+          )}
+          <span className="welcome-nav-note">A space to try, at your pace.</span>
+        </div>
       </header>
 
       <section className="welcome-hero" aria-labelledby="welcome-title">

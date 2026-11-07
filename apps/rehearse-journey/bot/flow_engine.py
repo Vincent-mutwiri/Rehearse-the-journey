@@ -348,6 +348,23 @@ class FlowEngine:
         """Apply or reject a controller approval decision and return the resulting FlowTurnDecision."""
         node = self.current_node
         if not self.pending_approval_node_id:
+            # Support direct user-initiated step navigation from the client's ApprovalController
+            # when no backend model proposal is pending (approval_id is None).
+            if approved and target_node_id and target_node_id in self.flow.nodes and approval_id is None:
+                return self._advance_to_node(
+                    target_node_id,
+                    declined=False,
+                    extra_events=[
+                        {
+                            "type": "approval_resolved",
+                            "approval_id": None,
+                            "approved": True,
+                            "node_id": target_node_id,
+                            "step_title": self.flow.nodes[target_node_id].step_title,
+                            "speaker": self.flow.nodes[target_node_id].speaker,
+                        }
+                    ],
+                )
             return FlowTurnDecision(
                 node_id=node.id,
                 step_title=node.step_title,

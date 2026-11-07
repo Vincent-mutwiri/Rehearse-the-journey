@@ -33,7 +33,7 @@ _STORY_ROUTES: Dict[str, Dict[str, str]] = {
         "label": "Reception → Waiting Area B (candidate path — confirm)",
     },
     "hospital-room-4": {
-        "origin": "Mbagathi Hospital, Nairobi, Kenya",
+        "origin": "Mbagathi Way, Nairobi, Kenya",
         "destination": "Mbagathi Hospital, Nairobi, Kenya",
         "label": "Waiting Area → Room 4 (candidate path — confirm)",
     },
@@ -51,6 +51,21 @@ _STORY_ROUTES: Dict[str, Dict[str, str]] = {
         "origin": "Nairobi CBD, Kenya",
         "destination": "Nairobi National Library, Nairobi, Kenya",
         "label": "CBD → Library (candidate path — confirm)",
+    },
+    "matatu-diversion-route": {
+        "origin": "Nairobi CBD, Kenya",
+        "destination": "Upper Hill Roundabout, Nairobi, Kenya",
+        "label": "CBD → Roundabout Stage Diversion (candidate path — confirm)",
+    },
+    "gov-counter-5-outage": {
+        "origin": "Kencom Stage, Nairobi, Kenya",
+        "destination": "Huduma Centre GPO, Nairobi, Kenya",
+        "label": "Kencom → Service Hall Counter 5 (candidate path — confirm)",
+    },
+    "directions-detour": {
+        "origin": "GPO Post Office, Nairobi, Kenya",
+        "destination": "Kenya National Library Service, Nairobi, Kenya",
+        "label": "Post Office Arcade → Library Detour (candidate path — confirm)",
     },
 }
 
@@ -118,8 +133,8 @@ def compute_route(origin: str, destination: str) -> Optional[Dict[str, Any]]:
                 "routes.distanceMeters,"
                 "routes.duration,"
                 "routes.legs.steps.navigationInstruction,"
-                "routes.legs.steps.startLocationLatLng,"
-                "routes.legs.steps.endLocationLatLng,"
+                "routes.legs.steps.startLocation,"
+                "routes.legs.steps.endLocation,"
                 "routes.polyline.encodedPolyline"
             ),
         }
@@ -139,11 +154,21 @@ def compute_route(origin: str, destination: str) -> Optional[Dict[str, Any]]:
         for leg in r.get("legs", []):
             for step in leg.get("steps", []):
                 ni = step.get("navigationInstruction", {})
+                start_loc = (
+                    step.get("startLocation", {}).get("latLng")
+                    or step.get("startLocationLatLng")
+                    or {}
+                )
+                end_loc = (
+                    step.get("endLocation", {}).get("latLng")
+                    or step.get("endLocationLatLng")
+                    or {}
+                )
                 steps.append({
                     "instruction": ni.get("instructions", ""),
                     "maneuver": ni.get("maneuver", ""),
-                    "start": step.get("startLocationLatLng", {}),
-                    "end": step.get("endLocationLatLng", {}),
+                    "start": start_loc,
+                    "end": end_loc,
                 })
         # Decode the encoded polyline for the Leaflet overlay
         polyline = _decode_polyline(r.get("polyline", {}).get("encodedPolyline", ""))

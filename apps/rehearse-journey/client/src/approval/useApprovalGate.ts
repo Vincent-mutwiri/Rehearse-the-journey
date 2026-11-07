@@ -11,7 +11,7 @@ import type { JoyPersona } from '@/components/JoyMascot'
 export interface UseApprovalGateOptions {
   client: PipecatClient | undefined
   currentSteps: FlowStepDef[]
-  onStepApproved: (speaker: JoyPersona, parallelFanout: boolean) => void
+  onStepApproved: (speaker: JoyPersona, parallelFanout: boolean, storyId?: string) => void
   onCameraConsentChanged: (consented: boolean) => void
 }
 
@@ -19,6 +19,7 @@ export interface UseApprovalGateReturn {
   controllerSnap: Readonly<ControllerState>
   backendApprovalId: string | null
   syncController: () => void
+  syncStepFromBackend: (stepId: string) => void
   startNewSession: (stepIds: string[], initialDraft: string[]) => void
   pauseController: () => void
   proposeModelNavigation: (targetNode: string, targetTitle: string, approvalId?: string) => void
@@ -59,6 +60,15 @@ export function useApprovalGate({
   const syncController = useCallback(() => {
     setControllerSnap(controllerRef.current.getSnapshot())
   }, [])
+
+  const syncStepFromBackend = useCallback(
+    (stepId: string) => {
+      if (controllerRef.current.syncStepFromBackend(stepId)) {
+        syncController()
+      }
+    },
+    [syncController],
+  )
 
   const startNewSession = useCallback(
     (stepIds: string[], initialDraft: string[]) => {
@@ -147,7 +157,11 @@ export function useApprovalGate({
         if (approved && res.applied && proposal.targetStepId) {
           const matchedStep = currentSteps.find(s => s.id === proposal.targetStepId)
           if (matchedStep) {
-            onStepApproved(matchedStep.speaker, Boolean(matchedStep.parallelFanout))
+            onStepApproved(
+              matchedStep.speaker,
+              Boolean(matchedStep.parallelFanout),
+              matchedStep.storyId,
+            )
           }
         }
       }
@@ -159,6 +173,7 @@ export function useApprovalGate({
     controllerSnap,
     backendApprovalId,
     syncController,
+    syncStepFromBackend,
     startNewSession,
     pauseController,
     proposeModelNavigation,

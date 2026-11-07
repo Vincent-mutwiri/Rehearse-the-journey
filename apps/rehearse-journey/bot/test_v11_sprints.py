@@ -129,18 +129,32 @@ def test_sa_flows_and_approval_blocking():
         "audio_enabled": False,
     }
 
-    # SA.4: All 4 scenarios + Level 3 diversion branch
+    # SA.4: All 16 scenario-and-level combinations (4 scenarios x 4 levels)
     for sid in ("hospital", "matatu", "government", "directions"):
-        e = FlowEngine(scenario_id=sid, level=1)
-        assert e.current_node_id == "greet"
+        l1 = FlowEngine(scenario_id=sid, level=1)
+        l2 = FlowEngine(scenario_id=sid, level=2)
+        l3 = FlowEngine(scenario_id=sid, level=3)
+        l4 = FlowEngine(scenario_id=sid, level=4)
+        assert l1.current_node_id == "greet"
+        assert len(l2.flow.nodes) > len(l1.flow.nodes), f"{sid} L2 should have extra follow-up node"
+        assert any(n.diversion_node_id for n in l3.flow.nodes.values()), f"{sid} L3 must have a diversion branch"
+        assert any(n.handoff_to == "amani" for n in l4.flow.nodes.values()), f"{sid} L4 must handoff to Amani"
+        assert any(n.parallel_fanout for n in l4.flow.nodes.values()), f"{sid} L4 must include parallel fan-out"
 
-    l3 = FlowEngine(scenario_id="hospital", level=3)
-    l3.evaluate_user_turn("I have a pretend checkup")
-    assert l3.current_node_id == "ask_for_card"
-    div = l3.evaluate_user_turn("Wait, why did the room move and where is it?")
-    assert div.branched_diversion is True
-    assert div.node_id == "room_move_diversion"
-    print("PASS [SA + Item 1 & 2]: Approval-gated progression blocks until approved, session config validated, L3 diversion verified")
+    # Verify Level 3 diversion branches for all 4 scenarios
+    diversion_cases = [
+        ("hospital", "I have a pretend checkup", "Wait, why did the room move and where is it?", "room_move_diversion"),
+        ("matatu", "Are you going toward town?", "Why is the stage closed and where is the diversion?", "stage_diversion"),
+        ("government", "I need help with a form inquiry", "Why is the screen offline and where is Counter 5?", "queue_outage_diversion"),
+        ("directions", "Where is the community library?", "Why is it fenced and where is the detour arcade?", "detour_diversion"),
+    ]
+    for sid, turn1, turn2, expected_div_node in diversion_cases:
+        eng = FlowEngine(scenario_id=sid, level=3)
+        eng.evaluate_user_turn(turn1)
+        div = eng.evaluate_user_turn(turn2)
+        assert div.branched_diversion is True, f"{sid} L3 failed to branch on diversion trigger"
+        assert div.node_id == expected_div_node, f"Expected {expected_div_node}, got {div.node_id}"
+    print("PASS [SA + Item 1 & 2]: All 16 scenario/level Flows (4 scenarios × L1-L4), approval blocking, and L3 diversions verified")
 
 
 def test_sb_multi_agent():

@@ -51,7 +51,7 @@ export default function JoyCenterpiece({
   return (
     <section
       aria-label="Joy, your rehearsal companion"
-      className="flex flex-col items-center gap-4 lg:sticky lg:top-8 lg:h-fit lg:min-h-[60vh] lg:flex-1 lg:items-center lg:justify-center"
+      className="rehearsal-companion flex flex-col items-center gap-4 lg:sticky lg:top-8 lg:h-fit lg:min-h-[60vh] lg:flex-1 lg:items-center lg:justify-center"
     >
       <div
         className="joy-centerpiece-stage"
@@ -92,7 +92,7 @@ export default function JoyCenterpiece({
                   : '👋 Practice companion'}
         </span>
       </div>
-      <div className="text-center">
+      <div className="rehearsal-companion-heading text-center">
         <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Rehearse the Journey</h1>
         <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs font-semibold">
           <span className="rounded-full bg-lavender/60 px-3 py-1">{currentScenario.name}</span>

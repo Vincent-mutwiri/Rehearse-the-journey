@@ -218,22 +218,54 @@ async def bot(runner_args):
             except Exception as exc:
                 logger.warning(f"Story image generation failed for {story_id}: {exc}")
 
+        async def _generate_and_send_story_route(self, story_id: str, node_id: Optional[str] = None):
+            """Compute a story route off the critical conversation path."""
+            try:
+                from maps import get_story_route
+
+                route = await asyncio.wait_for(
+                    asyncio.to_thread(get_story_route, story_id),
+                    timeout=self._image_timeout_sec,
+                )
+                if not self._session_active or not route:
+                    return
+                await self.send_server_message(
+                    {
+                        "type": "story_route",
+                        "story_id": story_id,
+                        "node_id": node_id,
+                        "route": route,
+                    }
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Story route computation timed out for {story_id}")
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.warning(f"Story route computation failed for {story_id}: {exc}")
+
         async def _send_flow_events(self, decision):
             for event in decision.rtvi_events:
                 out_event = dict(event)
                 if out_event.get("type") == "story_open" and out_event.get("story_id"):
                     story_id = out_event["story_id"]
-                    # Attach the Maps route data (if maps_api key is set).
-                    # The client renders it on a real Leaflet map in the
-                    # StoryCard's render() slot; falls back to the FictionalMap
-                    # SVG when route data is absent.
+                    # Attach the Maps route data if already cached; otherwise
+                    # compute off the critical path so story_open is never delayed.
                     try:
-                        from maps import get_story_route
-                        route = get_story_route(story_id)
-                        if route:
-                            out_event["route"] = route
+                        from maps import _cache as route_cache
+
+                        if story_id in route_cache:
+                            out_event["route"] = route_cache[story_id]
+                        elif self._session_active:
+                            rtask = asyncio.create_task(
+                                self._generate_and_send_story_route(
+                                    story_id, out_event.get("node_id")
+                                )
+                            )
+                            self._bg_image_tasks.add(rtask)
+                            rtask.add_done_callback(self._bg_image_tasks.discard)
                     except Exception as exc:
-                        logger.warning(f"Could not fetch route for {story_id}: {exc}")
+                        logger.warning(f"Could not schedule story route for {story_id}: {exc}")
                     # Attach the generated scene illustration (if available).
                     try:
                         from image_gen import _cache as image_cache
@@ -315,6 +347,47 @@ async def bot(runner_args):
                     fanout_evt = self._bus.build_parallel_fanout_turn()
                     await self.send_server_message(fanout_evt)
                 await self._send_flow_events(decision)
+                if approved and not decision.used_fallback and self._context is not None:
+                    persona = self._bus.active_persona
+                    self._context.add_message({
+                        "role": "system",
+                        "content": (
+                            f"[ACTIVE PERSONA: {persona.display_name} ({persona.role_badge})] "
+                            f"{persona.character_instructions}\n"
+                            f"[FLOW STEP '{decision.node_id}' ({decision.step_title})]: "
+                            f"{decision.instruction_for_llm}"
+                        ),
+                    })
+                    await self.push_frame(
+                        LLMMessagesAppendFrame(
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"The visitor approved advancing to '{decision.step_title}'. "
+                                        f"Please continue with: {decision.instruction_for_llm}"
+                                    ),
+                                }
+                            ],
+                            run_llm=True,
+                        )
+                    )
+            elif msg_type == "story_request":
+                req_story_id = str(payload.get("story_id") or "").strip()
+                if req_story_id:
+                    from types import SimpleNamespace
+
+                    await self._send_flow_events(
+                        SimpleNamespace(
+                            rtvi_events=[
+                                {
+                                    "type": "story_open",
+                                    "story_id": req_story_id,
+                                    "node_id": self._engine.current_node_id,
+                                }
+                            ]
+                        )
+                    )
 
             await super()._handle_client_message(msg_id, data)
 

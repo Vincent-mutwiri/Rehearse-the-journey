@@ -1,0 +1,12 @@
+{
+  "provider": "OpenAI isolated bot on port 7862",
+  "scope": "Provider-backed test using an offline synthetic voice through Chrome fake microphone; not a physical microphone or co-designer session.",
+  "incomplete_step": "Locator expected to contain text 'Joy:'\nActual value: The conversation will appear here.",
+  "session_state": "listening",
+  "visible_alerts": [
+    "Joy could not complete that response. Try again or exit and reconnect."
+  ],
+  "pause": "PASS: audio element removed and session paused",
+  "provider_error": "HTTP 401: configured OpenAI key rejected; no credential values retained.",
+  "result": "BLOCKED: provider authentication; physical microphone and full voice exchange remain unverified."
+}

@@ -1,0 +1,11 @@
+{
+  "checks": [
+    "PASS: keyboard-only scenario, typing, preference, mic, pause, reconnect, exit, restart; focus outline and focus transitions",
+    "PASS: browser accessibility tree exposes named transcript log, connection status, textbox, companion image",
+    "PASS: connecting, thinking and real generated-audio visualizers stop RAF and keep pixels static for OS/page motion settings; source audio track stays live; animation resumes"
+  ],
+  "scope": "Headless Chrome; SDK-mocked conversation and generated audio. Does not establish Orca usability, physical microphone operation or co-designer acceptance.",
+  "conversation_regression": "PASS: 3D canvas motion checks, mic-off start, typed reply, send failure, pause, reconnect and exit.",
+  "build": "PASS: TypeScript and Vite production build; existing large-chunk warnings remain.",
+  "page_speech_stop": "PASS: Stop page speech invokes browser speech cancellation; Pause resets read-aloud state."
+}

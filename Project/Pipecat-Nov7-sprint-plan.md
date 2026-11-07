@@ -132,7 +132,7 @@ Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before**
 
 **Goal:** give Joy a calm, friendly presence through the Soft mirror palette, a rigged 3D character, and conversation-driven gestures. The landing and rehearsal views share the same companion and existing session controller.
 
-**Implementation status (Nov 7):** S4.1–S4.4 are implemented. Joy uses Three.js + React Three Fiber 8 with an original procedural rig, replacing the SVG mascot. TypeScript and the production build pass; Vite reports large-chunk warnings. Headless Chrome verifies the canvas, speaking/listening states, motion preferences, mic-off start, typed replies, send failure, pause, reconnect, and exit. S4.5 remains partially complete: desktop/mobile screenshots and mascot motion checks are done; keyboard/AT, live voice, visualizer motion, and co-designer review still need verification.
+**Implementation status (Nov 7):** S4.1–S4.4 are implemented. Joy uses Three.js + React Three Fiber 8 with an original procedural rig, replacing the SVG mascot. TypeScript and the production build pass; Vite reports large-chunk warnings. Headless Chrome verifies the canvas, speaking/listening states, motion preferences, mic-off start, typed replies, send failure, pause, reconnect, and exit. S4.5 remains partially complete: keyboard-only navigation, browser accessibility-tree checks, and visualizer motion checks now pass. Orca’s desktop stop control is installed and the user confirms silence. Full Orca usability, physical-mic/live-voice verification, and co-designer acceptance remain open; OpenAI rejected the configured key with HTTP 401.
 
 **Design plan — Soft mirror** (grounded in the name and the use case, not a default):
 - **Palette (4 named tokens + 2 neutrals):**
@@ -187,15 +187,17 @@ Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before**
 - **Gate:** the person opens `localhost:3000` and sees Joy, the title, the subtitle, and the four scenario cards — a warm homepage, not a blank chat. Picking Hospital starts the rehearsal.
 
 **S4.5 — Polish pass + reduced-motion audit · partially complete · depends on: S4.4**
-- [x] Run the SDK-mocked browser regression through scenario selection, mic-off connection, speaking/listening state changes, typed reply, send failure, mic toggle, pause, reconnect, and exit. No provider or microphone calls are made.
-- [x] Verify Joy respects Reduce motion, Stop auto-advance, and dynamic OS `prefers-reduced-motion` changes. Compare canvas screenshots across time to confirm Reduce motion produces a static frame; confirm paused/ended states report still motion.
-- [x] Capture and inspect desktop (1000×900) and mobile (375×812) screenshots of the 3D landing. Local review artifacts: `/tmp/joy-desktop.png` and `/tmp/joy-mobile.png` (temporary, not committed demo evidence).
-- [ ] Walk the complete page with the co-designer on the demo machine, including provider-backed voice, Joy’s gestures, pause/reconnect, and exit. Review visual seams and the character’s tone.
-- [ ] Verify the audio visualizer also becomes static under reduced motion and Stop auto-advance; mascot verification alone does not establish this.
-- [ ] Complete a keyboard-only run and preferred assistive-technology check; confirm focus rings are visible on cream and controls remain usable.
-- [ ] Save final screenshots/demo evidence from the tested demo build and obtain co-designer acceptance of the Soft mirror presentation.
-- **Verification commands:** from `apps/rehearse-journey/client`, run `pnpm build`, then start Vite and run `python3 test/rehearsal-e2e.py http://localhost:3000` (substitute the actual dev-server port).
-- **Gate:** build and mocked session regression pass; mascot reduced motion is verified. Final sign-off remains open until keyboard/AT, visualizer motion, live voice, and co-designer checks pass.
+- [x] Run the SDK-mocked session regression through scenario selection, mic-off connection, speaking/listening, typed reply, send failure, mic toggle, pause, reconnect, and exit. Mock matching handles Vite timestamps; mocked tests block API requests.
+- [x] Verify Joy respects Reduce motion, Stop auto-advance, and dynamic OS preferences. Static poses snap immediately; extra demand frames cannot continue damping or blinking.
+- [x] Verify connecting, thinking, and generated-audio visualizers become static under OS/page reduced motion. Canvas pixels remain unchanged, RAF callbacks stop, the source audio track remains live, and animation resumes when allowed. The page’s Stop auto-advance preference uses the same explicit visualizer motion control.
+- [x] Complete a keyboard-only browser run: start, type/send, change a preference, toggle mic, pause, reconnect, exit, and restart. Add a solid ink focus outline, focus management when views/controls are replaced, a named transcript log, and a named connection status. Check these semantics through Chrome’s accessibility tree.
+- [x] Save fictional review screenshots and automated results in [`apps/rehearse-journey/evidence/s4.5`](../apps/rehearse-journey/evidence/s4.5/README.md).
+- [x] Address the reported Linux screen-reader issue: Orca continued reading the interface after Pause/Exit. Stop Orca and install a desktop **Turn off screen reader** launcher; user confirms they no longer hear it. Add a separate **Stop page speech** control for app narration; Pause/Exit also reset the read-aloud state.
+- [ ] Complete the co-designer’s full Orca usability review: labels, reading order, pressed states, live announcements, focus transitions, and speech overlap. Browser accessibility-tree checks and confirmed silence do not establish AT usability.
+- [ ] Verify a provider-backed spoken exchange on the laptop mic/speakers. **Blocked:** the isolated OpenAI attempt reached WebRTC, then received HTTP 401 from the provider. No greeting or complete spoken exchange was verified. Pause removed the audio element and paused the session. Fix provider credentials outside source control, then retest; the existing Gemini configuration is unchanged.
+- [ ] Obtain the co-designer’s acceptance of Joy’s appearance, gestures, and voice; record requested changes and final demo evidence. No acceptance has been reported yet.
+- **Verification commands:** from `apps/rehearse-journey/client`, run `pnpm build`, then with Vite running execute `python3 test/rehearsal-e2e.py http://localhost:3003` and `python3 test/s45-accessibility.py http://localhost:3003` (substitute the actual port).
+- **Gate:** automated keyboard/tree and visualizer checks pass. Final sign-off remains open for full Orca usability, working provider-backed voice on physical hardware, and co-designer acceptance. Follow the Linux review walkthrough in the evidence README.
 
 ---
 

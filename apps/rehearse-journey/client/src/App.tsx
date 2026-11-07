@@ -25,6 +25,7 @@ import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
 import { UserAudioControlView } from '@/components/pipecat/user-audio-control'
 import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
 import JoyMascot from '@/components/JoyMascot'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { Button } from '@/components/ui/button'
 import {
   ReadAloud,
@@ -100,18 +101,35 @@ function RehearsalView() {
   // Increments on each completed user turn — retriggers Joy's sage nod.
   const [nod, setNod] = useState(0)
 
-  // Rotate the tips carousel on a timer — the thing stop-auto-advance holds.
+  const motionReduced = useReducedMotion(reduceMotion)
+  const landing = state === 'idle'
+  const statusRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const previousState = useRef<RolePlayState>(state)
+
+  // Keep keyboard focus useful when a clicked control is replaced by a new view.
+  useEffect(() => {
+    const previous = previousState.current
+    previousState.current = state
+    if (state === previous) return
+    if (state === 'idle') titleRef.current?.focus()
+    else if (state === 'connecting' || state === 'paused' || state === 'ended') statusRef.current?.focus()
+    else if (state === 'listening' && previous !== 'speaking') document.getElementById('typed-input')?.focus()
+  }, [state])
+
+  // The landing has no carousel; start only once the session view is mounted.
   useEffect(() => {
     const box = tipsRef.current
-    if (!box) return
+    if (landing || stopAuto || motionReduced || !box) return
     const slides = Array.from(box.querySelectorAll('.tip-slide'))
-    let i = 0
+    if (!slides.length) return
+    let i = Math.max(0, slides.findIndex(slide => slide.classList.contains('is-active')))
     const id = setInterval(() => {
       i = (i + 1) % slides.length
-      slides.forEach((s, j) => s.classList.toggle('is-active', j === i))
+      slides.forEach((slide, index) => slide.classList.toggle('is-active', index === i))
     }, 6000)
     return () => clearInterval(id)
-  }, [])
+  }, [landing, stopAuto, motionReduced])
 
   // Track whether the read-aloud adapter is actually speaking.
   useEffect(() => {
@@ -203,8 +221,9 @@ function RehearsalView() {
     generation.current++
     stoppingRef.current = true
     setStopping(true)
-    // Pause/Exit stops ALL audio, including the read-aloud adapter's speech.
+    // Stop conversation audio and this page’s read-aloud speech. OS screen readers remain user-controlled.
     ReadAloud.stop()
+    setReadAloud(false)
     setAloudSpeaking(false)
     client?.enableMic(false)
     const tracks = client?.tracks()
@@ -314,7 +333,7 @@ function RehearsalView() {
       <main className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col items-center justify-center gap-8 px-5 py-10">
         <JoyMascot state="idle" reduceMotion={reduceMotion || stopAuto} />
         <header className="text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Rehearse the Journey</h1>
+          <h1 ref={titleRef} tabIndex={-1} className="text-2xl font-semibold tracking-tight">Rehearse the Journey</h1>
           <p className="mx-auto mt-2 max-w-[46ch] text-[0.95rem] leading-relaxed opacity-80">
             Practice the conversations that feel hard, with a companion who sits with you.
           </p>
@@ -355,6 +374,16 @@ function RehearsalView() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-8 px-5 py-8">
+      {readAloud && (
+        <Button variant="outline" className="sticky top-3 z-10 self-start" onClick={() => {
+          ReadAloud.stop()
+          setReadAloud(false)
+          setAloudSpeaking(false)
+          statusRef.current?.focus()
+        }}>
+          Stop page speech
+        </Button>
+      )}
       {/* ── Header: Joy above the conversation, badges as soft pills ── */}
       <header className="flex flex-col items-center gap-4">
         <JoyMascot state={state} encourageSignal={nod} reduceMotion={reduceMotion || stopAuto} />
@@ -437,20 +466,21 @@ function RehearsalView() {
       </div>
 
       {/* ── Connection status + Joy's voice visualizer ── */}
-      <div aria-live="polite" aria-label="Connection status" className="rounded-2xl border border-ink/10 bg-mist/40 p-4">
+      <div ref={statusRef} tabIndex={-1} role="status" aria-live="polite" aria-label="Connection status" className="rounded-2xl border border-ink/10 bg-mist/40 p-4">
         {(isConnected || state === 'connecting') && (
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
             <AudioVisualizerBar
               participantType="bot"
               isConnecting={state === 'connecting'}
+              reduceMotion={motionReduced || stopAuto}
               barColor={state === 'speaking' ? '--lavender' : '--sage'}
               barCount={28}
               barWidth={4}
               barGap={4}
               barMaxHeight={44}
-              className="h-11 flex-1"
+              className="h-11 max-w-full flex-1"
             />
-            <p className="shrink-0 text-sm">
+            <p className="min-w-0 text-sm">
               {state === 'speaking'
                 ? '🔊 Joy is speaking…'
                 : micEnabled
@@ -479,6 +509,8 @@ function RehearsalView() {
       {/* ── Transcript ── */}
       <section
         aria-label="Conversation transcript"
+        role="log"
+        aria-relevant="additions"
         aria-live="polite"
         className="max-h-[320px] min-h-[200px] overflow-y-auto rounded-2xl border border-ink/10 bg-mist/40 p-5 text-base"
       >
@@ -515,7 +547,7 @@ function RehearsalView() {
           id="typed-input"
           aria-label="Type your response here"
           placeholder="Type here — works with or without mic"
-          className="min-h-[64px] flex-1 resize-y rounded-2xl border border-ink/15 bg-white/80 px-4 py-3 text-base outline-none focus-visible:border-lavender focus-visible:ring-2 focus-visible:ring-lavender/50"
+          className="min-h-[64px] min-w-0 flex-1 resize-y rounded-2xl border border-ink/15 bg-white/80 px-4 py-3 text-base outline-none focus-visible:border-lavender focus-visible:ring-2 focus-visible:ring-lavender/50"
           value={typedInput}
           maxLength={2000}
           onChange={e => setTypedInput(e.target.value)}

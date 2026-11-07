@@ -48,9 +48,11 @@ def main():
             response = route.fetch()
             route.fulfill(response=response, body=response.text() + "\n" + SDK_MOCK)
 
-        page.route("**/src/App.tsx", mock_sdk)
+        page.route("**/api/**", lambda route: route.abort("blockedbyclient"))
+        page.route("**/src/App.tsx*", mock_sdk)
         page.goto(sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3000")
         page.wait_for_load_state("networkidle")
+        assert page.evaluate("Array.isArray(window.testCalls)"), "SDK mock did not load"
         joy = page.get_by_role("img", name="Joy, your rehearsal companion", exact=False)
         expect(joy).to_have_attribute("data-state", "idle")
         expect(joy.locator("canvas")).to_have_count(1)

@@ -1,4 +1,5 @@
-import { Component, lazy, Suspense, useSyncExternalStore, type ReactNode } from 'react'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
+import { Component, lazy, Suspense, type ReactNode } from 'react'
 
 export type JoyState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'
 export interface JoyMascotProps {
@@ -8,13 +9,6 @@ export interface JoyMascotProps {
   className?: string
 }
 const JoyScene = lazy(() => import('./JoyScene'))
-const motionQuery = '(prefers-reduced-motion: reduce)'
-function subscribeMotion(onChange: () => void) {
-  const query = window.matchMedia(motionQuery)
-  query.addEventListener('change', onChange)
-  return () => query.removeEventListener('change', onChange)
-}
-const getReducedMotion = () => window.matchMedia(motionQuery).matches
 function Placeholder() { return <span className="joy-placeholder">Joy</span> }
 class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -22,7 +16,7 @@ class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean
   render() { return this.state.failed ? <Placeholder /> : this.props.children }
 }
 export default function JoyMascot({ state, encourageSignal = 0, reduceMotion = false, className = '' }: JoyMascotProps) {
-  const systemReducedMotion = useSyncExternalStore(subscribeMotion, getReducedMotion, () => true)
+  const systemReducedMotion = useReducedMotion()
   const still = reduceMotion || systemReducedMotion || state === 'paused' || state === 'ended'
   return (
     <div role="img" aria-label={`Joy, your rehearsal companion — ${state}`}

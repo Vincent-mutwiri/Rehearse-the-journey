@@ -108,3 +108,19 @@ The scene loads in a separate chunk. OS reduced motion, Reduce motion, Stop
 auto-advance and paused/ended sessions all stop continuous rendering. A text
 placeholder keeps Joy’s accessible label available while loading or if WebGL
 fails. Edit the rig and its frame poses in `JoyScene.tsx` to change the character.
+
+## S4.5 accessibility review
+
+Keyboard navigation, focus visibility, browser accessibility semantics, and
+visualizer motion have a dedicated regression:
+
+```bash
+cd client
+python3 test/s45-accessibility.py http://localhost:3003
+```
+
+See [the S4.5 evidence and Linux review walkthrough](evidence/s4.5/README.md).
+The laptop has a **Turn off screen reader** desktop launcher for Orca; app
+read-aloud speech has a separate **Stop page speech** control. Full Orca usability
+and co-designer acceptance remain pending. The latest isolated OpenAI voice
+attempt was blocked by HTTP 401, so physical-mic/provider voice is not verified.

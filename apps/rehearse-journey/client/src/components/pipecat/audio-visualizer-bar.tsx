@@ -2,6 +2,7 @@
 
 import { usePipecatClientMediaTrack } from "@pipecat-ai/client-react";
 import { memo, useEffect, useRef } from "react";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 import {
   createVisualizerAnalyser,
@@ -71,6 +72,8 @@ export interface AudioVisualizerBarViewProps {
    * rest fade toward this with the wave.
    */
   thinkingAlpha?: number;
+  /** Draw resting dots once and release the analyser; never stops the source track. */
+  reduceMotion?: boolean;
   className?: string;
 }
 
@@ -99,8 +102,10 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
   thinkingWaveWidth = 1.5,
   thinkingHeight = 0.25,
   thinkingAlpha = 0.5,
+  reduceMotion = false,
   className,
 }: AudioVisualizerBarViewProps) {
+  const motionReduced = useReducedMotion(reduceMotion);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const resolvedBarColorRef = useRef<string>("black");
   const resolvedPeakLineColorRef = useRef<string>("black");
@@ -127,7 +132,7 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
   // Audio pipeline — only recreated when the track changes. The overrides
   // are synthetic, so they skip the pipeline entirely.
   useEffect(() => {
-    if (!track || isConnecting || isThinking) {
+    if (motionReduced || !track || isConnecting || isThinking) {
       analyserRef.current = null;
       frequencyDataRef.current = null;
       return;
@@ -142,7 +147,7 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
       frequencyDataRef.current = null;
       dispose();
     };
-  }, [track, isConnecting, isThinking]);
+  }, [track, isConnecting, isThinking, motionReduced]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -161,7 +166,9 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
     canvas.style.width = `${canvasWidth}px`;
     canvas.style.height = `${totalHeight}px`;
 
-    const canvasCtx = canvas.getContext("2d")!;
+    const rawCtx = canvas.getContext("2d");
+    if (!rawCtx) return;
+    const canvasCtx = rawCtx as CanvasRenderingContext2D;
     canvasCtx.lineCap = barLineCap;
     canvasCtx.scale(scaleFactor, scaleFactor);
     canvasCtx.translate(0, peakClearance);
@@ -269,7 +276,7 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
       canvasCtx.fillRect(0, -peakClearance, canvasWidth, totalHeight);
 
       let spectrum: Uint8Array<ArrayBuffer> | null = null;
-      if (!isConnecting && !isThinking && analyser && frequencyData) {
+      if (!motionReduced && !isConnecting && !isThinking && analyser && frequencyData) {
         analyser.getByteFrequencyData(frequencyData);
         spectrum = frequencyData;
       }
@@ -280,7 +287,9 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
         let targetHeight = 0;
         let targetAlpha = 1;
 
-        if (isConnecting) {
+        if (motionReduced) {
+          display[i] = { h: 0, a: 1 };
+        } else if (isConnecting) {
           // Roll opacity across the resting dots.
           targetAlpha =
             0.25 +
@@ -370,18 +379,20 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
 
       // Animated modes and unfinished transitions keep the loop alive; a
       // settled silent frame stops it (the effect restarts on changes).
-      if (isConnecting || isThinking || spectrum || !settled) {
+      if (!motionReduced && (isConnecting || isThinking || spectrum || !settled)) {
         rafId = requestAnimationFrame(drawSpectrum);
       }
     }
 
-    rafId = requestAnimationFrame(drawSpectrum);
+    if (motionReduced) drawSpectrum();
+    else rafId = requestAnimationFrame(drawSpectrum);
 
     return () => {
       cancelAnimationFrame(rafId);
     };
   }, [
     backgroundColor,
+    motionReduced,
     // Colors are drawn from refs, but a settled silent frame stops the
     // loop — restart it when they change so it repaints. The resolution
     // effect above runs first (declaration order), so the refs are fresh.
@@ -412,6 +423,8 @@ export const AudioVisualizerBarView = memo(function AudioVisualizerBarView({
   return (
     <canvas
       ref={canvasRef}
+      aria-hidden="true"
+      data-motion={motionReduced ? "still" : "animated"}
       data-slot="audio-visualizer-bar"
       data-state={
         (isConnecting

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Visualizer motion regression fixture</title></head>
+<body>
+  <div id="fixture"></div>
+  <script type="module">
+    import React from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { AudioVisualizerBarView } from '/src/components/pipecat/audio-visualizer-bar.tsx';
+    let frames = 0;
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = callback => raf(time => { frames++; callback(time); });
+    const audio = new AudioContext();
+    const oscillator = audio.createOscillator();
+    const destination = audio.createMediaStreamDestination();
+    oscillator.frequency.value = 440;
+    oscillator.connect(destination);
+    oscillator.start();
+    const track = destination.stream.getAudioTracks()[0];
+    window.fixture = { frameCount: () => frames, track, audio };
+    function Fixture() {
+      const [mode, setMode] = React.useState('connecting');
+      const [still, setStill] = React.useState(false);
+      return React.createElement('main', null,
+        React.createElement('h1', null, 'Visualizer motion fixture'),
+        ...['connecting', 'thinking', 'audio'].map(value => React.createElement('button', {
+          key: value, onClick: async () => { await audio.resume(); setMode(value); }
+        }, value)),
+        React.createElement('button', { onClick: () => setStill(value => !value), 'aria-pressed': still }, 'Stop motion'),
+        React.createElement(AudioVisualizerBarView, {
+          track: mode === 'audio' ? track : null,
+          isConnecting: mode === 'connecting', isThinking: mode === 'thinking',
+          reduceMotion: still, barCount: 12, barWidth: 8, barGap: 6, barMaxHeight: 64,
+          barColor: '#3a3550', noPeaks: false,
+        }));
+    }
+    createRoot(document.getElementById('fixture')).render(React.createElement(Fixture));
+  </script>
+</body>
+</html>

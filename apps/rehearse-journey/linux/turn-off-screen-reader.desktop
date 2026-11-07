@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Turn off screen reader
+Comment=Stop Orca on this Linux laptop
+Icon=audio-volume-muted
+Terminal=false
+Exec=/bin/bash "/home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit/apps/rehearse-journey/linux/stop-screen-reader.sh"
+Categories=Accessibility;

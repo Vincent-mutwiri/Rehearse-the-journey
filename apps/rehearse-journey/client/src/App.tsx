@@ -16,8 +16,6 @@ import {
 } from '@pipecat-ai/client-react'
 import { PipecatClient } from '@pipecat-ai/client-js'
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
-import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
-import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { Button } from '@/components/ui/button'
 import {
   ReadAloud,
@@ -27,7 +25,7 @@ import {
   simplifyStepText,
   ORIGINAL_STEP_TEXT,
 } from './toolkitAdapters'
-import { PROVIDER_STACK_OPTIONS } from './controller/v11ScenariosAndModes'
+import { LEVEL_LABELS, PROVIDER_STACK_OPTIONS } from './controller/v11ScenariosAndModes'
 import { useRehearsalSession, type RolePlayState } from './session/useRehearsalSession'
 import WelcomeLanding from './presentation/WelcomeLanding'
 import JoyCenterpiece from './presentation/JoyCenterpiece'
@@ -35,9 +33,10 @@ import ApprovalGateCard from './presentation/ApprovalGateCard'
 import CompanionModesPanel from './presentation/CompanionModesPanel'
 import SettingsDrawer from './presentation/SettingsDrawer'
 import Dashboard, { type DashboardSection } from './components/Dashboard'
-import Wellness from './components/Wellness'
 import Directions from './components/Directions'
 import CalmMe, { CALM_ME_OPEN_EVENT } from './components/CalmMe'
+import StoryCard from './components/StoryCard'
+import { STORIES } from './stories'
 
 const STATUS_NARRATION: Record<RolePlayState, string> = {
   idle: 'Ready to start. Press Start Rehearsal to connect to Joy.',
@@ -110,7 +109,6 @@ function RehearsalView() {
   const [plainWords, setPlainWords] = useState(false)
   const [stopAuto, setStopAuto] = useState(false)
   const [reduceMotion, setReduceMotion] = useState(false)
-  const [currentExchangeOnly, setCurrentExchangeOnly] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   const [aloudSpeaking, setAloudSpeaking] = useState(false)
   const [userSpeaking, setUserSpeaking] = useState(false)
@@ -140,10 +138,9 @@ function RehearsalView() {
     return params.get('dev') === '1' || metaEnv?.VITE_DEV_DIAGNOSTICS === '1'
   }, [])
 
-  const motionReduced = useReducedMotion(reduceMotion)
   // Dashboard section — which section the person picked from the dashboard.
   // null = the dashboard landing; 'simulations' = the scenario picker;
-  // 'directions' = the directions form; 'wellness' = the wellness check-in.
+  // 'directions' = the directions form.
   const [dashboardSection, setDashboardSection] = useState<DashboardSection | null>(null)
   const statusRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
@@ -221,31 +218,6 @@ function RehearsalView() {
     setShowOriginal(false)
   }
 
-  const toggleCurrentExchangeOnly = () => {
-    setCurrentExchangeOnly(prev => !prev)
-  }
-
-  const visibleTurns = useMemo(() => {
-    if (!currentExchangeOnly || turns.length <= 2) return turns
-    const lastTurn = turns[turns.length - 1]
-    if (lastTurn.speaker === 'You') {
-      const prevJoy = [...turns.slice(0, -1)].reverse().find(t => t.speaker === 'Joy')
-      return prevJoy ? [prevJoy, lastTurn] : [lastTurn]
-    }
-    const prevYou = [...turns.slice(0, -1)].reverse().find(t => t.speaker === 'You')
-    return prevYou ? [prevYou, lastTurn] : [lastTurn]
-  }, [currentExchangeOnly, turns])
-
-  const transcriptRef = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    if (currentExchangeOnly) return
-    const el = transcriptRef.current
-    if (el) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [turns, joyThinking, currentExchangeOnly])
-
   const isConnected = state === 'listening' || state === 'speaking'
 
   if (state === 'idle' && !dashboardSection) {
@@ -256,18 +228,77 @@ function RehearsalView() {
     )
   }
 
-  if (state === 'idle' && dashboardSection === 'wellness') {
+  if (state === 'idle' && dashboardSection === 'directions') {
     return (
       <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-6 px-5 py-8">
-        <Wellness onBack={() => setDashboardSection(null)} />
+        <Directions
+          onBack={() => setDashboardSection(null)}
+          onRehearseMatatu={() => {
+            setDashboardSection('simulations')
+            void handleStart('matatu', chaosLevel, mode)
+          }}
+        />
       </main>
     )
   }
 
-  if (state === 'idle' && dashboardSection === 'directions') {
+  if (state === 'idle' && dashboardSection === 'stories') {
+    const activeStoryKey = storyId && STORIES[storyId] ? storyId : 'hospital-waiting-area'
+    const activeStoryObj = STORIES[activeStoryKey]
     return (
-      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-6 px-5 py-8">
-        <Directions onBack={() => setDashboardSection(null)} />
+      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[760px] flex-col gap-6 px-5 py-8">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            onClick={() => setDashboardSection(null)}
+          >
+            ← Back to dashboard
+          </Button>
+          <Button
+            size="sm"
+            className="rounded-full"
+            onClick={() => setDashboardSection('simulations')}
+          >
+            Practise with Joy &amp; Amani →
+          </Button>
+        </header>
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Interactive Stories &amp; Maps</h2>
+          <p className="mt-1 text-sm opacity-75">
+            Step through each visual story card and floor-plan map at your own pace.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Choose an interactive story">
+          {Object.values(STORIES).map(st => (
+            <button
+              key={st.id}
+              type="button"
+              aria-pressed={activeStoryKey === st.id}
+              onClick={() => setStoryId(st.id)}
+              className={
+                'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ' +
+                (activeStoryKey === st.id
+                  ? 'border-lavender bg-lavender/30 text-ink'
+                  : 'border-ink/15 bg-white/70 text-ink/80 hover:border-lavender/50')
+              }
+            >
+              {st.title}
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-center py-2">
+          <StoryCard
+            key={`dashboard:${activeStoryObj.id}`}
+            story={{
+              ...activeStoryObj,
+              image: storyImages[activeStoryObj.id] ?? activeStoryObj.image,
+              route: storyRoutes[activeStoryObj.id] ?? activeStoryObj.route,
+            }}
+            onClose={() => setDashboardSection(null)}
+          />
+        </div>
       </main>
     )
   }
@@ -288,28 +319,7 @@ function RehearsalView() {
   }
 
   return (
-    <main className="rehearsal-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-6 px-5 py-6 sm:py-8 lg:flex-row lg:gap-10 lg:py-10">
-      <JoyCenterpiece
-        state={state}
-        joyThinking={joyThinking}
-        activePersona={activePersona}
-        parallelOverlap={parallelOverlap}
-        nod={nod}
-        reduceMotion={reduceMotion}
-        stopAuto={stopAuto}
-        micEnabled={speech.micEnabled}
-        userSpeaking={userSpeaking || Boolean(speech.interimSpoken) || Boolean(typedInput.trim())}
-        currentScenario={currentScenario}
-        chaosLevel={chaosLevel}
-        currentStepDef={currentStepDef}
-        storyId={storyId}
-        storySession={storySession}
-        storyImages={storyImages}
-        storyRoutes={storyRoutes}
-        onCloseStory={() => setStoryId(null)}
-      />
-
-      <div className="rehearsal-conversation flex min-w-0 flex-col gap-4 lg:flex-[1.4]">
+    <main className="rehearsal-shell rehearsal-duo-layout mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-6 sm:py-8 lg:gap-10 lg:py-10">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2.5">
             <button
@@ -336,21 +346,8 @@ function RehearsalView() {
             >
               ← Home
             </button>
-            <h2 className="text-lg font-semibold">Conversation</h2>
-            <button
-              type="button"
-              aria-pressed={currentExchangeOnly}
-              onClick={toggleCurrentExchangeOnly}
-              title="Toggle between showing only the current conversation exchange or the full scrolling transcript"
-              className={
-                'rounded-full border px-3 py-1 text-xs font-semibold transition-colors ' +
-                (currentExchangeOnly
-                  ? 'border-lavender bg-lavender/25 text-ink'
-                  : 'border-ink/15 bg-white/60 text-ink/80 hover:border-lavender/60')
-              }
-            >
-              {currentExchangeOnly ? 'Current turn only' : 'Show current turn only'}
-            </button>
+            <h1 className="sr-only">Rehearse the Journey</h1>
+
           </div>
           <SettingsDrawer>
             <fieldset className="min-w-0">
@@ -373,15 +370,6 @@ function RehearsalView() {
                       toggle: togglePlainWords,
                       label: plainWords ? 'Aa Plainer words — on' : 'Aa Plainer words',
                       hint: 'Rewrites the step card in plain language',
-                    },
-                    {
-                      key: 'currentExchangeOnly',
-                      on: currentExchangeOnly,
-                      toggle: toggleCurrentExchangeOnly,
-                      label: currentExchangeOnly
-                        ? '💬 Current exchange only — on'
-                        : '💬 Current exchange only',
-                      hint: 'Shows only the latest turn instead of scrolling through history',
                     },
                     {
                       key: 'stopAuto',
@@ -457,229 +445,11 @@ function RehearsalView() {
                 </fieldset>
               )}
             </section>
-          </SettingsDrawer>
-        </header>
-        {readAloud && (
-          <Button
-            variant="outline"
-            className="sticky top-3 z-10 self-start"
-            onClick={() => {
-              ReadAloud.stop()
-              setReadAloud(false)
-              setAloudSpeaking(false)
-              statusRef.current?.focus()
-            }}
-          >
-            Stop page speech
-          </Button>
-        )}
 
-        <div
-          ref={statusRef}
-          tabIndex={-1}
-          role="status"
-          aria-live="polite"
-          aria-label="Connection status"
-          className="rounded-2xl border border-ink/10 bg-mist/40 p-4"
-        >
-          {(isConnected || state === 'connecting') && (
-            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="rehearsal-audio-container min-w-0 flex-1">
-                <AudioVisualizerBar
-                  participantType="bot"
-                  isConnecting={state === 'connecting'}
-                  reduceMotion={motionReduced || stopAuto}
-                  barColor={state === 'speaking' ? '--lavender' : '--sage'}
-                  barCount={28}
-                  barWidth={4}
-                  barGap={4}
-                  barMaxHeight={44}
-                  className="rehearsal-audio-meter h-11 max-w-full flex-1"
-                />
-              </div>
-              <p className="min-w-0 text-sm">
-                {state === 'speaking'
-                  ? '🔊 Joy is speaking…'
-                  : joyThinking
-                    ? '💭 Joy is thinking…'
-                    : speech.micEnabled
-                      ? speech.interimSpoken
-                        ? `you said: ${speech.interimSpoken}`
-                        : '🎤 Listening — speak or type below.'
-                      : 'Microphone off — type below, or turn on your microphone.'}
-              </p>
-            </div>
-          )}
-          {state === 'connecting' && <p>⏳ Connecting to Joy…</p>}
-          {state === 'paused' && (
-            <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>
-          )}
-          {state === 'ended' && (
-            <p>
-              Session ended.{' '}
-              <Button
-                size="sm"
-                disabled={stopping}
-                onClick={() => {
-                  setTurns([])
-                  setTypedInput('')
-                  setError('')
-                  setState('idle')
-                }}
-              >
-                Start again
-              </Button>
-            </p>
-          )}
-        </div>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-
-        <section
-          ref={transcriptRef}
-          aria-label="Conversation transcript"
-          role="log"
-          aria-relevant="additions"
-          aria-live="polite"
-          className="rehearsal-transcript max-h-[320px] min-h-[200px] overflow-y-auto rounded-2xl border border-ink/10 bg-mist/40 p-5 text-base"
-        >
-          {visibleTurns.length === 0 && !joyThinking && (
-            <p className="opacity-60">The conversation will appear here.</p>
-          )}
-          {currentExchangeOnly && turns.length > visibleTurns.length && (
-            <p className="mb-2.5 text-xs opacity-65">
-              Showing current exchange ({turns.length - visibleTurns.length} earlier{' '}
-              {turns.length - visibleTurns.length === 1 ? 'message' : 'messages'} hidden)
-            </p>
-          )}
-          {visibleTurns.map(t => (
-            <div
-              key={t.id}
-              className={
-                'mb-3 rounded-2xl px-4 py-2.5 ' +
-                (t.speaker === 'Joy'
-                  ? 'border border-lavender/25 bg-lavender/15'
-                  : 'ml-4 border border-ink/10 bg-white/60 sm:ml-8')
-              }
-            >
-              <span className="text-xs font-bold uppercase tracking-wide opacity-70">
-                {t.speakerLabel ?? (t.speaker === 'Joy' ? 'Joy' : 'You')}
-              </span>
-              <p className="mt-0.5 leading-relaxed">{t.text}</p>
-            </div>
-          ))}
-          {joyThinking && (
-            <div className="mb-3 rounded-2xl border border-lavender/25 bg-lavender/15 px-4 py-2.5">
-              <span className="text-xs font-bold uppercase tracking-wide opacity-70">Joy</span>
-              <p className="mt-0.5 flex items-center gap-1.5 leading-relaxed">
-                <span className="rtj-pulse inline-block h-2 w-2 rounded-full bg-lavender/60" />
-                <span
-                  className="rtj-pulse inline-block h-2 w-2 rounded-full bg-lavender/60"
-                  style={{ animationDelay: '0.3s' }}
-                />
-                <span
-                  className="rtj-pulse inline-block h-2 w-2 rounded-full bg-lavender/60"
-                  style={{ animationDelay: '0.6s' }}
-                />
-              </p>
-            </div>
-          )}
-        </section>
-
-        <div className="flex items-end gap-3">
-          <textarea
-            id="typed-input"
-            aria-label="Type your response here"
-            placeholder="Type here — works with or without mic"
-            className="min-h-[64px] min-w-0 flex-1 resize-y rounded-2xl border border-ink/15 bg-white/80 px-4 py-3 text-base outline-none focus-visible:border-lavender focus-visible:ring-2 focus-visible:ring-lavender/50"
-            value={typedInput}
-            maxLength={2000}
-            onChange={e => setTypedInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                void handleSendText()
-              }
-            }}
-          />
-          <Button
-            variant="outline"
-            className="h-12 shrink-0 rounded-full px-5"
-            onClick={() => void handleSendText()}
-            disabled={!isConnected || sending || !typedInput.trim()}
-            aria-label="Send typed message"
-          >
-            {sending ? 'Sending…' : 'Send'}
-          </Button>
-        </div>
-
-        <div className="rehearsal-controls flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
-          {isConnected && (
-            <Button
-              variant="secondary"
-              className="rounded-full"
-              onClick={() =>
-                void stopSession('paused', () => {
-                  setReadAloud(false)
-                  setAloudSpeaking(false)
-                })
-              }
-              aria-label="Pause — stops audio and microphone"
-            >
-              ⏸ Pause
-            </Button>
-          )}
-          {state === 'paused' && (
-            <Button
-              disabled={stopping}
-              className="rounded-full"
-              onClick={() => void handleStart(scenarioId, chaosLevel, mode)}
-              aria-label="Reconnect with microphone off"
-            >
-              Reconnect with mic off
-            </Button>
-          )}
-          {(isConnected || state === 'paused' || state === 'connecting') && (
-            <Button
-              variant="outline"
-              className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
-              onClick={() =>
-                void stopSession('ended', () => {
-                  setReadAloud(false)
-                  setAloudSpeaking(false)
-                })
-              }
-              aria-label="Exit rehearsal — ends the session"
-            >
-              ✕ Exit
-            </Button>
-          )}
-          {isConnected && (
-            <Button
-              variant="outline"
-              className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
-              onClick={speech.toggleMic}
-              aria-label={speech.micEnabled ? 'Microphone on' : 'Microphone off'}
-              title={
-                speech.micEnabled
-                  ? 'Turn microphone off — stops speech capture'
-                  : 'Turn microphone on — speak to Joy'
-              }
-              aria-pressed={speech.micEnabled}
-            >
-              {speech.micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
-            </Button>
-          )}
-        </div>
-
-        <ApprovalGateCard
-          proposal={approval.controllerSnap.pendingProposal}
-          onRespond={approval.respondToProposal}
-        />
-
+            <section className="border-t border-ink/15 pt-5" aria-label="Practice details">
+              <h3 className="font-semibold">{currentScenario.name}</h3>
+              <p className="mt-1 text-sm">{LEVEL_LABELS[chaosLevel].title}</p>
+            </section>
         <details className="rehearsal-disclosure">
           <summary>What to expect</summary>
           <div className="pt-3">
@@ -758,6 +528,214 @@ function RehearsalView() {
             whiskerTraces={whiskerTraces}
           />
         </details>
+          </SettingsDrawer>
+        </header>
+      <div className="rehearsal-workspace grid w-full grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_350px] lg:gap-8">
+        <div className="flex min-w-0 flex-col gap-4">
+          <JoyCenterpiece
+            state={state}
+            joyThinking={joyThinking}
+            activePersona={activePersona}
+            parallelOverlap={parallelOverlap}
+            nod={nod}
+            reduceMotion={reduceMotion}
+            stopAuto={stopAuto}
+            micEnabled={speech.micEnabled}
+            userSpeaking={userSpeaking || Boolean(speech.interimSpoken) || Boolean(typedInput.trim())}
+            turns={turns}
+            currentScenario={currentScenario}
+            currentStepDef={currentStepDef}
+          />
+
+          <div className="rehearsal-conversation flex min-w-0 flex-col gap-4">
+
+            {readAloud && (
+              <Button
+                variant="outline"
+                className="sticky top-3 z-10 self-start"
+                onClick={() => {
+                  ReadAloud.stop()
+                  setReadAloud(false)
+                  setAloudSpeaking(false)
+                  statusRef.current?.focus()
+                }}
+              >
+                Stop page speech
+              </Button>
+            )}
+
+            <div
+              ref={statusRef}
+              tabIndex={-1}
+              role="status"
+              aria-live="polite"
+              aria-label="Connection status"
+              className={isConnected ? 'sr-only' : 'text-center text-sm'}
+            >
+              {isConnected && (
+                <p>{state === 'speaking' ? 'Joy is speaking.' : joyThinking ? 'Joy is thinking.' : speech.micEnabled ? 'Microphone on — speak or type.' : 'Microphone off — type below, or turn on your microphone.'}</p>
+              )}
+              {state === 'connecting' && <p>⏳ Connecting to Joy…</p>}
+              {state === 'paused' && (
+                <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>
+              )}
+              {state === 'ended' && (
+                <p>
+                  Session ended.{' '}
+                  <Button
+                    size="sm"
+                    disabled={stopping}
+                    onClick={() => {
+                      setTurns([])
+                      setTypedInput('')
+                      setError('')
+                      setState('idle')
+                    }}
+                  >
+                    Start again
+                  </Button>
+                </p>
+              )}
+            </div>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            {/* Announce new turns once; visible dialogue stays beneath the mascots. */}
+            <section
+              aria-label="Conversation transcript"
+              role="log"
+              aria-relevant="additions text"
+              aria-live="polite"
+              className="sr-only"
+            >
+              {turns.map(turn => (
+                <p key={turn.id}>
+                  {turn.speakerLabel ?? (turn.speaker === 'Joy' ? 'Joy' : 'You')}: {turn.text}
+                </p>
+              ))}
+            </section>
+
+            <div className="flex items-end gap-3">
+              <textarea
+                id="typed-input"
+                aria-label="Type your response here"
+                placeholder="Type here — works with or without mic"
+                className="min-h-[64px] min-w-0 flex-1 resize-y rounded-2xl border border-ink/15 bg-white/80 px-4 py-3 text-base outline-none focus-visible:border-lavender focus-visible:ring-2 focus-visible:ring-lavender/50"
+                value={typedInput}
+                maxLength={2000}
+                onChange={e => setTypedInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    void handleSendText()
+                  }
+                }}
+              />
+              <Button
+                variant="outline"
+                className="h-12 shrink-0 rounded-full px-5"
+                onClick={() => void handleSendText()}
+                disabled={!isConnected || sending || !typedInput.trim()}
+                aria-label="Send typed message"
+              >
+                {sending ? 'Sending…' : 'Send'}
+              </Button>
+            </div>
+
+            <div className="rehearsal-controls flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
+              {isConnected && (
+                <Button
+                  variant="secondary"
+                  className="rounded-full"
+                  onClick={() =>
+                    void stopSession('paused', () => {
+                      setReadAloud(false)
+                      setAloudSpeaking(false)
+                    })
+                  }
+                  aria-label="Pause — stops audio and microphone"
+                >
+                  ⏸ Pause
+                </Button>
+              )}
+              {state === 'paused' && (
+                <Button
+                  disabled={stopping}
+                  className="rounded-full"
+                  onClick={() => void handleStart(scenarioId, chaosLevel, mode)}
+                  aria-label="Reconnect with microphone off"
+                >
+                  Reconnect with mic off
+                </Button>
+              )}
+              {(isConnected || state === 'paused' || state === 'connecting') && (
+                <Button
+                  variant="outline"
+                  className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+                  onClick={() =>
+                    void stopSession('ended', () => {
+                      setReadAloud(false)
+                      setAloudSpeaking(false)
+                    })
+                  }
+                  aria-label="Exit rehearsal — ends the session"
+                >
+                  ✕ Exit
+                </Button>
+              )}
+              {isConnected && (
+                <Button
+                  variant="outline"
+                  className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+                  onClick={speech.toggleMic}
+                  aria-label={speech.micEnabled ? 'Microphone on' : 'Microphone off'}
+                  title={
+                    speech.micEnabled
+                      ? 'Turn microphone off — stops speech capture'
+                      : 'Turn microphone on — speak to Joy'
+                  }
+                  aria-pressed={speech.micEnabled}
+                >
+                  {speech.micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
+                </Button>
+              )}
+            </div>
+
+            <ApprovalGateCard
+              proposal={approval.controllerSnap.pendingProposal}
+              onRespond={approval.respondToProposal}
+            />
+          </div>
+        </div>
+
+        <aside
+          aria-label="Interactive story and practice map"
+          className="rehearsal-story-rail flex w-full flex-col items-center lg:sticky lg:top-6"
+        >
+          {storyId && STORIES[storyId] ? (
+            <StoryCard
+              key={`${storySession}:${storyId}`}
+              story={{
+                ...STORIES[storyId],
+                image: storyImages[storyId] ?? STORIES[storyId].image,
+                route: storyRoutes[storyId] ?? STORIES[storyId].route,
+              }}
+              onClose={() => setStoryId(null)}
+            />
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => openStory(currentStepDef?.storyId ?? currentScenario.defaultStoryId)}
+            >
+              📖 Open Interactive Story &amp; Map
+            </Button>
+          )}
+        </aside>
       </div>
 
       {/* Pipecat audio element (rendered only when connected and voice output is enabled) */}

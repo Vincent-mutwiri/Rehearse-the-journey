@@ -37,7 +37,7 @@ def main():
         drawer = page.get_by_role('dialog', name='Settings', exact=True)
         draft = page.get_by_role('textbox', name='Type your response here')
         draft.fill('Keep this unsent reply.')
-        calls_before = page.evaluate('window.testCalls.length')
+        calls_before = page.evaluate("window.testCalls.filter(c => ['connect', 'disconnect', 'sendText'].includes(c[0]) || (c[0] === 'mic' && c[1]))")
         expect(drawer).not_to_be_visible()
         expect(page.get_by_role('note', name='Fictional scenario notice')).not_to_be_visible()
         assert not page.locator('details').evaluate_all('(sections) => sections.some(section => section.open)')
@@ -48,7 +48,7 @@ def main():
         close = drawer.get_by_role('button', name='Close settings')
         expect(close).to_be_focused()
         page.keyboard.press('Shift+Tab')
-        expect(drawer.get_by_role('button', name='🐢 Reduce motion')).to_be_focused()
+        expect(drawer.locator('summary').last).to_be_focused()
         page.keyboard.press('Tab')
         expect(close).to_be_focused()
         expect(drawer.get_by_role('note')).to_contain_text('This app does not save the transcript.')
@@ -58,19 +58,18 @@ def main():
         expect(settings).to_be_focused()
         expect(drawer).not_to_be_visible()
         expect(draft).to_have_value('Keep this unsent reply.')
-        assert page.evaluate('window.testCalls.length') == calls_before, 'Settings must not change session/media state'
+        assert page.evaluate("window.testCalls.filter(c => ['connect', 'disconnect', 'sendText'].includes(c[0]) || (c[0] === 'mic' && c[1]))") == calls_before, 'Settings must not connect, disconnect, send a message, or enable the microphone'
+        expect(page.get_by_role('button', name='Microphone off', exact=True)).to_have_attribute('aria-pressed', 'false')
+        settings.click()
         page.get_by_text('What to expect', exact=True).click()
         expect(page.locator('details').filter(has=page.get_by_text('What to expect', exact=True))).to_contain_text('practice hospital')
         page.get_by_text('What to expect', exact=True).click()
 
-        settings.click()
         expect(drawer.get_by_role('button', name='Aa Plainer words')).to_have_attribute('aria-pressed', 'true')
-        for label in ['💬 Current exchange only', '⏸ Stop auto-advance', '🐢 Reduce motion']:
+        for label in ['⏸ Stop auto-advance', '🐢 Reduce motion']:
             control = drawer.get_by_role('button', name=label)
             control.click()
             expect(control).to_have_attribute('aria-pressed', 'true')
-        drawer.get_by_role('button', name='💬 Current exchange only').click()
-        expect(drawer.get_by_role('button', name='💬 Current exchange only')).to_have_attribute('aria-pressed', 'false')
         drawer.get_by_role('button', name='🔊 Read page aloud').click()
         expect(drawer.get_by_role('button', name='⏹ Stop reading aloud')).to_have_attribute('aria-pressed', 'true')
         close.click()

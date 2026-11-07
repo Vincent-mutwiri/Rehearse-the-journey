@@ -10,6 +10,7 @@ export interface JoyMascotProps {
   thinking?: boolean
   persona?: JoyPersona
   facing?: FacingDirection
+  behindDesk?: boolean
   companionLabel?: string
   encourageSignal?: number
   reduceMotion?: boolean
@@ -26,6 +27,7 @@ export default function JoyMascot({
   thinking = false,
   persona = 'joy',
   facing = 'default',
+  behindDesk = false,
   companionLabel = 'Joy, your rehearsal companion',
   encourageSignal = 0,
   reduceMotion = false,
@@ -41,6 +43,7 @@ export default function JoyMascot({
       data-thinking={thinking ? 'true' : 'false'}
       data-persona={persona}
       data-facing={facing}
+      data-behind-desk={behindDesk ? 'true' : 'false'}
       data-motion={still ? 'still' : 'animated'}
       className={`joy ${className}`}
     >
@@ -51,6 +54,7 @@ export default function JoyMascot({
             thinking={thinking}
             persona={persona}
             facing={facing}
+            behindDesk={behindDesk}
             encourageSignal={encourageSignal}
             still={still}
           />

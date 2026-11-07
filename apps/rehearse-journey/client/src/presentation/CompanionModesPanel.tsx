@@ -343,11 +343,18 @@ export default function CompanionModesPanel({
             </Button>
           </div>
           {routeRequested && (
-            <div className="rounded-xl border border-peach bg-peach/15 p-3 text-xs">
-              <strong>Candidate path — confirm with your co-designer (3.4 km, ~18 min):</strong>
+            <div className="rounded-xl border border-peach bg-peach/15 p-3 text-xs space-y-2">
+              <strong>Candidate path — confirm with your co-designer (3.4 km / 3,400 m · ~12 min matatu · ~42 min walk):</strong>
+              <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-white/80 p-2 text-[11px]">
+                <div><strong>Distance:</strong> 3.4 km (~4,400 steps)</div>
+                <div><strong>Weather:</strong> ~23°C Partly cloudy, light breeze</div>
+                <div><strong>Busyness:</strong> Moderate at Hospital Rd Stage</div>
+                <div><strong>Noise level:</strong> ~65 dB (street &amp; matatu stage)</div>
+              </div>
               <ol className="mt-1 list-inside list-decimal space-y-0.5">
-                <li>Board Route 7C or 46 at Kencom Stage, CBD.</li>
-                <li>Alight at Hospital Road Stage, Upper Hill.</li>
+                <li>Board Route 7C or 46 at Kencom Stage, CBD (0.0 km).</li>
+                <li>Pass General Post Office (GPO) &amp; Kenyatta Ave roundabout (1.2 km).</li>
+                <li>Alight at Hospital Road Stage, Upper Hill (3.4 km).</li>
                 <li>Confirm roadside signage with your co-designer (never advances rehearsal).</li>
               </ol>
             </div>

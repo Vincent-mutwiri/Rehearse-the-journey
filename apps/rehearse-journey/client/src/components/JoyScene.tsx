@@ -29,6 +29,7 @@ interface SceneProps {
   thinking?: boolean
   persona?: JoyPersona
   facing?: FacingDirection
+  behindDesk?: boolean
   encourageSignal: number
   still: boolean
 }
@@ -1041,12 +1042,73 @@ function Character({ state, thinking = false, persona = 'joy', facing = 'default
   return <primitive object={rig.root} dispose={null} />
 }
 
+function ReceptionDeskMesh() {
+  return (
+    <group position={[0, 0, 0.42]}>
+      {/* Main front desk body */}
+      <mesh position={[0, 0.36, 0]}>
+        <boxGeometry args={[1.42, 0.72, 0.44]} />
+        <meshStandardMaterial color="#f5ede4" roughness={0.65} />
+      </mesh>
+      {/* Lavender front panel accent */}
+      <mesh position={[0, 0.34, 0.225]}>
+        <boxGeometry args={[1.28, 0.52, 0.02]} />
+        <meshStandardMaterial color="#dcd2ee" roughness={0.55} />
+      </mesh>
+      {/* Warm countertop ledge */}
+      <mesh position={[0, 0.73, 0.02]}>
+        <boxGeometry args={[1.52, 0.06, 0.52]} />
+        <meshStandardMaterial color="#e8c8ad" roughness={0.45} />
+      </mesh>
+      {/* Hospital cross emblem on front of desk */}
+      <group position={[0, 0.36, 0.24]}>
+        <mesh>
+          <circleGeometry args={[0.14, 32]} />
+          <meshStandardMaterial color="#fbf7f2" roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0, 0.005]}>
+          <boxGeometry args={[0.048, 0.16, 0.01]} />
+          <meshStandardMaterial color="#8fb39b" roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0, 0.005]}>
+          <boxGeometry args={[0.16, 0.048, 0.01]} />
+          <meshStandardMaterial color="#8fb39b" roughness={0.4} />
+        </mesh>
+      </group>
+      {/* Small computer monitor / terminal on left side of desk */}
+      <group position={[-0.42, 0.85, -0.02]} rotation={[0, 0.28, 0]}>
+        <mesh position={[0, 0.05, 0]}>
+          <boxGeometry args={[0.32, 0.22, 0.03]} />
+          <meshStandardMaterial color="#3a3550" roughness={0.5} />
+        </mesh>
+        <mesh position={[0, -0.08, 0]}>
+          <cylinderGeometry args={[0.025, 0.04, 0.08, 16]} />
+          <meshStandardMaterial color="#655e76" roughness={0.5} />
+        </mesh>
+        <mesh position={[0, -0.11, 0]}>
+          <boxGeometry args={[0.14, 0.02, 0.10]} />
+          <meshStandardMaterial color="#655e76" roughness={0.5} />
+        </mesh>
+      </group>
+      {/* Clinic card / clipboard on right side of desk */}
+      <mesh position={[0.38, 0.765, 0.06]} rotation={[0, -0.22, 0]}>
+        <boxGeometry args={[0.22, 0.015, 0.28]} />
+        <meshStandardMaterial color="#fbf7f2" roughness={0.5} />
+      </mesh>
+      <mesh position={[0.38, 0.775, 0.02]} rotation={[0, -0.22, 0]}>
+        <boxGeometry args={[0.14, 0.01, 0.06]} />
+        <meshStandardMaterial color="#a89bd4" roughness={0.4} />
+      </mesh>
+    </group>
+  )
+}
+
 export default function JoyScene(props: SceneProps) {
   return (
     <Canvas
       aria-hidden="true"
       camera={{ position: [0, 1.16, 4.4], fov: 34 }}
-      dpr={[1, 1.5]}
+      dpr={1}
       frameloop={props.still ? 'demand' : 'always'}
       gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
       fallback={<JoyPlaceholder />}
@@ -1060,6 +1122,7 @@ export default function JoyScene(props: SceneProps) {
       <directionalLight position={[-3, 5, 4]} intensity={2.5} color="#fff3e3" />
       <directionalLight position={[3, 2, -2]} intensity={1.3} color="#d8cbff" />
       <Character {...props} />
+      {props.behindDesk && <ReceptionDeskMesh />}
       <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.28, 0.66, 1]}>
         <circleGeometry args={[1.05, 48]} />
         <meshBasicMaterial color="#f4c6a6" transparent opacity={0.12} />

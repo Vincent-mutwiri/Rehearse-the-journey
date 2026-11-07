@@ -61,3 +61,4 @@ jobs:
           python3 test/session-settings.py http://127.0.0.1:3099
           python3 test/s45-accessibility.py http://127.0.0.1:3099
           python3 test/joy-mascot.py http://127.0.0.1:3099
+          python3 test/mascot-dialogue.py http://127.0.0.1:3099

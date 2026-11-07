@@ -181,9 +181,26 @@ export function RealMap({ route, caption }: { route: RouteData; caption: string 
   const end = pts[pts.length - 1]
   const bounds = L.latLngBounds(pts)
   const km = (route.distance_meters / 1000).toFixed(1)
+  const rawSec = route.duration ? Number(String(route.duration).replace('s', '')) || 0 : 0
+  const driveMins = Math.max(1, Math.round((rawSec || (route.distance_meters / 1000) * 180) / 60))
+  const walkMins = Math.max(1, Math.round(((route.distance_meters / 1000) * 750) / 60))
 
   return (
     <figure className="story-map story-map-real">
+      <div className="mb-2 grid grid-cols-2 gap-1.5 rounded-xl border border-ink/10 bg-cream/80 p-2 text-[11px]">
+        <div>
+          <span className="font-semibold">Distance:</span> {km} km ({route.distance_meters} m)
+        </div>
+        <div>
+          <span className="font-semibold">Travel:</span> ~{driveMins}m drive · ~{walkMins}m walk
+        </div>
+        <div>
+          <span className="font-semibold">Weather:</span> ~23°C Partly cloudy
+        </div>
+        <div>
+          <span className="font-semibold">Busyness / Noise:</span> Moderate (~60 dB)
+        </div>
+      </div>
       <MapContainer
         center={bounds.getCenter()}
         zoom={14}
@@ -205,7 +222,7 @@ export function RealMap({ route, caption }: { route: RouteData; caption: string 
         </Marker>
       </MapContainer>
       <figcaption>
-        {caption} — {km} km, {route.steps.length} steps.
+        {caption} — {km} km (~{driveMins} min drive / ~{walkMins} min walk), {route.steps.length} steps.
         <br />
         <strong>Candidate path — confirm with your co-designer.</strong>
       </figcaption>

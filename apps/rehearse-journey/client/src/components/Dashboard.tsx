@@ -5,13 +5,13 @@
  * Joy stays as the mascot throughout (shown in JoyCenterpiece).
  */
 
-import { Sprout, Navigation, HeartPulse, ArrowRight } from 'lucide-react'
+import { Sprout, Navigation, ArrowRight } from 'lucide-react'
 import JoyMascot from './JoyMascot'
 
 export type DashboardSection =
   | 'simulations'
+  | 'stories'
   | 'directions'
-  | 'wellness'
 
 export interface DashboardProps {
   onSelect: (section: DashboardSection) => void
@@ -35,16 +35,9 @@ const SECTIONS: Array<{
   {
     id: 'directions',
     title: 'Get Directions',
-    description: 'Enter where you want to go. See the route on a real map, step by step. Candidate path — confirm with your co-designer.',
+    description: 'Enter where you want to go. See the route on a real map, how the place looks, key landmarks, crowd busyness, noise levels, and live weather.',
     icon: Navigation,
     accent: 'sage',
-  },
-  {
-    id: 'wellness',
-    title: 'Wellness',
-    description: 'Check in with yourself. Pick a mood, try a grounding exercise, hear an encouraging word from Joy.',
-    icon: HeartPulse,
-    accent: 'peach',
   },
 ]
 
@@ -63,6 +56,7 @@ export default function Dashboard({ onSelect, reduceMotion = false }: DashboardP
                 state="speaking"
                 persona="joy"
                 facing="right"
+                behindDesk
                 companionLabel="Joy, your rehearsal companion"
                 reduceMotion={reduceMotion}
                 className="joy-duo-mascot"

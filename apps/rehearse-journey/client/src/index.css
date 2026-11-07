@@ -2,6 +2,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* A single conversation stage, with secondary controls below it. */
+.rehearsal-duo-layout { --mascot-height: clamp(240px, 38dvh, 400px); align-items: center; gap: 20px; }
+.rehearsal-duo-layout > header { width: 100%; order: 0; }
+.rehearsal-duo-layout .rehearsal-companion { display: block; }
+.rehearsal-duo-layout .rehearsal-companion .joy-centerpiece-stage { padding: 0; }
+.rehearsal-duo-layout .joy-duo-row { gap: clamp(16px, 4vw, 64px); }
+.rehearsal-duo-layout .joy-dialogue-column { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--mascot-height) 36px auto; }
+.rehearsal-duo-layout .rehearsal-companion .joy-dialogue-column > .joy-duo-mascot { width: 100%; max-width: 360px; height: var(--mascot-height); }
+.rehearsal-duo-layout .joy-dialogue { min-height: 96px; padding: 18px; font-size: 16px; }
+.rehearsal-duo-layout .rehearsal-conversation { width: min(100%, 760px); flex: none; align-self: center; }
+.rehearsal-duo-layout .rehearsal-controls { justify-content: center; }
+@media (max-width: 700px) {
+  .rehearsal-duo-layout { --mascot-height: clamp(180px, 29dvh, 260px); gap: 14px; }
+  .rehearsal-duo-layout .joy-dialogue { padding: 12px; font-size: 14px; }
+}
+
 /* ── Soft mirror palette (Kioo companion) ────────────────────────────────── */
 :root {
   --lavender: #a89bd4;
@@ -126,11 +142,76 @@ input {
   color: var(--ink);
 }
 
+/* Each dialogue card stays in the same column as its speaker. */
+.rehearsal-duo-layout .rehearsal-companion { min-width: 0; width: 100%; }
+.joy-centerpiece-stage[data-duo-stage] { width: 100%; padding-inline: 0; }
+.joy-centerpiece-stage[data-duo-stage] .joy-stage-backdrop {
+  inset: 10px 0 auto;
+  height: 240px;
+  overflow: hidden;
+  border-radius: 28px;
+}
+.joy-duo-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; width: 100%; }
+.joy-dialogue-column { display: grid; grid-template-rows: 220px minmax(42px, auto) auto; justify-items: center; align-items: start; min-width: 0; }
+.joy-dialogue-column > .joy-duo-mascot { width: 100%; max-width: 200px; height: 220px; }
+.joy-dialogue-column > span { max-width: 100%; align-self: center; text-align: center; }
+.joy-dialogue {
+  --dialogue-accent: var(--lavender);
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 86px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in oklab, var(--dialogue-accent) 50%, var(--cream));
+  border-radius: 16px;
+  background: #fffdfa;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.joy-dialogue::before { content: ''; position: absolute; top: -6px; left: calc(50% - 6px); width: 10px; height: 10px; border-top: inherit; border-left: inherit; background: inherit; transform: rotate(45deg); }
+.joy-dialogue-partner { --dialogue-accent: var(--sage); }
+.joy-dialogue-placeholder, .joy-dialogue-thinking { color: #655e76; }
+.joy-dialogue-thinking { margin-top: 8px; font-size: 12px; }
+@media (min-width: 1024px) {
+  .rehearsal-duo-layout { display: flex; flex-direction: column; align-items: center; }
+  .rehearsal-companion[data-has-story="true"] .joy-centerpiece-stage {
+    padding: 6px 12px 6px;
+  }
+  .rehearsal-companion[data-has-story="true"] .joy-centerpiece-stage[data-duo-stage] .joy-stage-backdrop {
+    height: 140px;
+  }
+  .rehearsal-companion[data-has-story="true"] .joy-dialogue-column {
+    grid-template-rows: 136px minmax(26px, auto) auto;
+  }
+  .rehearsal-companion[data-has-story="true"] .joy-dialogue-column > .joy-duo-mascot {
+    width: 136px;
+    max-width: 136px;
+    height: 136px;
+  }
+  .rehearsal-companion[data-has-story="true"] .joy-dialogue {
+    min-height: 48px;
+    margin-top: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+}
+@media (max-width: 1023px) {
+  .joy-duo-row { gap: 10px; }
+  .joy-dialogue-column { grid-template-rows: 96px auto; }
+  .rehearsal-companion .joy-dialogue-column > .joy-duo-mascot { width: 96px; max-width: 96px; height: 96px; }
+  .joy-centerpiece-stage[data-duo-stage] .joy-stage-backdrop { height: 104px; }
+  .joy-dialogue { display: block; }
+}
+
 /* Dashboard entry points share the companion's existing palette. */
 .dashboard-grid { padding-block: clamp(24px, 5vw, 64px); }
 .dashboard-heading { margin: 0; font-size: clamp(28px, 3vw, 36px); font-weight: 600; line-height: 1.2; letter-spacing: -1px; }
 .dashboard-subtitle { max-width: 60ch; margin: 12px 0 28px; color: #655e76; line-height: 1.7; }
-.dashboard-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.dashboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; }
 .dashboard-card {
   --card-accent: var(--lavender);
   display: flex;
@@ -158,11 +239,11 @@ input {
 .dashboard-card-action { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: auto; padding-top: 8px; font-size: 14px; font-weight: 600; }
 .dashboard-card-action svg { width: 18px; height: 18px; }
 
-/* Directions and wellness remain legible after entering from the dashboard. */
-.directions-section, .wellness-section { display: flex; flex-direction: column; gap: 24px; min-width: 0; padding-block: 16px; }
-.directions-header-row, .wellness-header-row { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
-.directions-title, .wellness-title { margin: 0; font-size: clamp(26px, 4vw, 34px); font-weight: 600; line-height: 1.2; letter-spacing: -0.8px; }
-.directions-back-btn, .wellness-back-btn { gap: 8px; }
+/* Directions remain legible after entering from the dashboard. */
+.directions-section { display: flex; flex-direction: column; gap: 24px; min-width: 0; padding-block: 16px; }
+.directions-header-row { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+.directions-title { margin: 0; font-size: clamp(26px, 4vw, 34px); font-weight: 600; line-height: 1.2; letter-spacing: -0.8px; }
+.directions-back-btn { gap: 8px; }
 .directions-form, .directions-field { display: flex; flex-direction: column; gap: 10px; }
 .directions-form { gap: 20px; }
 .directions-field-label { font-size: 14px; font-weight: 600; }
@@ -179,21 +260,6 @@ input {
 .directions-step { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-bottom: 1px solid var(--mist); }
 .directions-step-num { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--mist); font-size: 13px; font-weight: 600; }
 .directions-step-text { min-width: 0; line-height: 1.65; }
-.wellness-moods { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-.wellness-mood { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 100px; padding: 12px 8px; border: 1px solid var(--mist); border-radius: 16px; background: #fffdfa; color: var(--ink); cursor: pointer; }
-.wellness-mood:hover, .wellness-mood.is-selected { border-color: var(--lavender); background: color-mix(in oklab, var(--lavender) 20%, var(--cream)); }
-.wellness-mood-emoji { font-size: 28px; }
-.wellness-mood-label { font-size: 13px; font-weight: 600; }
-.wellness-encouragement { display: flex; align-items: flex-start; gap: 12px; padding: 20px; border-radius: 16px; background: color-mix(in oklab, var(--peach) 22%, var(--cream)); line-height: 1.7; }
-.wellness-encouragement svg { width: 20px; height: 20px; flex-shrink: 0; margin-top: 4px; }
-.wellness-exercise-prompt, .wellness-exercise-title { margin: 0 0 16px; font-size: 17px; font-weight: 600; }
-.wellness-exercise-buttons, .wellness-step-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.wellness-exercise-buttons > button { gap: 8px; height: auto; min-height: 48px; padding: 12px 16px; white-space: normal; }
-.wellness-active-exercise { padding: 24px; border: 1px solid var(--mist); border-radius: 20px; background: #fffdfa; }
-.wellness-step-text { min-height: 72px; margin-bottom: 24px; font-size: 20px; line-height: 1.6; }
-.wellness-step-dots { display: flex; flex-wrap: wrap; gap: 5px; }
-.wellness-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mist); }
-.wellness-dot.is-active { background: var(--ink); }
 
 /* Secondary rehearsal information and modal settings. */
 .rehearsal-disclosure { padding: 14px 18px; border: 1px solid var(--mist); border-radius: 16px; }
@@ -203,24 +269,36 @@ input {
 .settings-drawer::backdrop { background: rgb(58 53 80 / 25%); }
 .settings-drawer-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--mist); }
 .settings-drawer-body { display: flex; flex-direction: column; gap: 28px; min-height: 0; padding: 24px 24px max(24px, env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
+@media (min-width: 1024px) {
+  .rehearsal-companion[data-has-story="true"] .joy-centerpiece-stage {
+    padding: 10px 16px 8px;
+  }
+  .rehearsal-companion[data-has-story="true"] .joy-duo-mascot {
+    width: 148px;
+    height: 168px;
+  }
+}
 @media (max-width: 1023px) {
   .rehearsal-shell { gap: 16px; padding-top: 16px; padding-bottom: 16px; }
   .rehearsal-audio-container { display: none; }
   .rehearsal-transcript { min-height: 140px; max-height: 240px; }
   .rehearsal-controls { gap: 8px; }
   .rehearsal-controls > button { padding-inline: 12px; font-size: 14px; }
-  .rehearsal-companion { flex-direction: row; flex-wrap: wrap; justify-content: center; }
-  .rehearsal-companion .joy-centerpiece-stage { padding: 4px; }
-  .rehearsal-companion .joy { width: 112px; height: 132px; }
+  .rehearsal-companion { display: contents; }
+  .rehearsal-companion > .joy-centerpiece-stage { order: 1; padding: 4px; }
+  .rehearsal-companion .joy,
+  .rehearsal-companion .joy-duo-mascot { width: 96px; height: 112px; }
   .rehearsal-companion .joy-status-pill { display: none; }
-  .rehearsal-companion-heading { flex: 1; text-align: left; }
+  .rehearsal-companion-heading { order: 1; text-align: center; }
   .rehearsal-companion-heading h1 { font-size: 17px; }
-  .rehearsal-companion-heading > div { justify-content: flex-start; }
+  .rehearsal-companion-heading > div { justify-content: center; }
+  .rehearsal-conversation { order: 2; }
+  .rehearsal-companion > .story-card,
+  .rehearsal-companion > button { order: 3; align-self: center; }
 }
 @media (max-width: 700px) {
   .dashboard-cards { grid-template-columns: 1fr; gap: 14px; }
   .dashboard-card { min-height: 0; gap: 16px; padding: 22px; }
-  .wellness-moods { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* Conversation activity indicator. */

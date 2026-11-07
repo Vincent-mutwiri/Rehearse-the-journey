@@ -105,7 +105,7 @@ def main():
             channel=os.getenv("PLAYWRIGHT_CHANNEL", "chrome"),
             args=["--enable-unsafe-swiftshader"],
         )
-        page = browser.new_page()
+        page = browser.new_page(reduced_motion="reduce")
         errors = []
         page.on("pageerror", lambda err: errors.append(str(err)))
 
@@ -270,10 +270,12 @@ def main():
         print("PASS 5: story_open renders immediately and updates when async story_image arrives")
 
         expect(page.locator("audio")).to_have_count(1)
+        page.get_by_role('button', name='Settings', exact=True).click()
         page.get_by_text('Journey & modes', exact=True).click()
         page.get_by_role("button", name="Voice output: On").click()
         expect(page.get_by_role("button", name="Voice output: Off (Text-only)")).to_have_attribute("aria-pressed", "true")
         expect(page.locator("audio")).to_have_count(0)
+        page.get_by_role('button', name='Close settings').click()
 
         textbox = page.get_by_role("textbox", name="Type your response here")
         textbox.fill("Testing text-only turn")

@@ -19,6 +19,7 @@ export type ClarificationPercentage = 20 | 40 | 60
 
 export interface Turn {
   speaker: 'Joy' | 'You'
+  persona?: JoyPersona
   speakerLabel?: string
   text: string
   id: number
@@ -35,7 +36,7 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
   const [joyThinking, setJoyThinking] = useState(false)
 
   // Story card state + dynamic off-critical-path story image map
-  const [storyId, setStoryId] = useState<string | null>(null)
+  const [storyId, setStoryId] = useState<string | null>('hospital-waiting-area')
   const [storySession, setStorySession] = useState(0)
   const [storyImages, setStoryImages] = useState<Record<string, string>>({})
   const [storyRoutes, setStoryRoutes] = useState<Record<string, RouteData>>({})
@@ -126,7 +127,7 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
       speaker: 'Joy' | 'You',
       text: string,
       speakerLabel?: string,
-      options?: { appendToPrevious?: boolean },
+      options?: { appendToPrevious?: boolean; persona?: JoyPersona },
     ) => {
       const cleaned = text.trim()
       if (!cleaned) return
@@ -136,11 +137,11 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
           const sameLabel =
             (last.speakerLabel ?? (last.speaker === 'Joy' ? 'Joy' : 'You')) ===
             (speakerLabel ?? (speaker === 'Joy' ? 'Joy' : 'You'))
-          if (last.speaker === speaker && sameLabel) {
+          if (last.speaker === speaker && sameLabel && last.persona === options?.persona) {
             return [...prev.slice(0, -1), { ...last, text: `${last.text} ${cleaned}` }]
           }
         }
-        return [...prev, { speaker, speakerLabel, text: cleaned, id: turnId.current++ }]
+        return [...prev, { speaker, speakerLabel, persona: options?.persona, text: cleaned, id: turnId.current++ }]
       })
       if (speaker === 'You') setNod(n => n + 1)
     },
@@ -193,7 +194,10 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
 
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
     if (active.current && data.text.trim()) {
-      addTurn('Joy', data.text, undefined, { appendToPrevious: true })
+      addTurn('Joy', data.text, activePersona === 'amani' ? 'Amani' : currentScenario.personaLabel, {
+        appendToPrevious: true,
+        persona: activePersona,
+      })
       setJoyThinking(false)
       setNod(n => n + 1)
     }
@@ -214,7 +218,6 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
     if (active.current) {
       active.current = false
       speech.disableMic()
-      setStoryId(null)
       setState('ended')
       setError('Connection ended. Start again to reconnect to Joy.')
     }
@@ -388,6 +391,11 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
       const stepsForScenario = scen.stepsByLevel[nextLevel]
       setActivePersona(scen.persona)
       setParallelOverlap(false)
+      const initialStoryId = stepsForScenario[0]?.storyId ?? scen.defaultStoryId
+      if (initialStoryId && STORIES[initialStoryId]) {
+        setStorySession(s => s + 1)
+        setStoryId(initialStoryId)
+      }
       const cfg = {
         scenario_id: nextScenario,
         level: nextLevel,
@@ -443,7 +451,6 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
       ReadAloud.stop()
       onAfterStop?.()
       setJoyThinking(false)
-      setStoryId(null)
       setParallelOverlap(false)
       if (next === 'ended') {
         setCameraConsent(false)

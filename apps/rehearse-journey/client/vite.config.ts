@@ -27,6 +27,18 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/maps-routes/, '/directions/v2:computeRoutes'),
       },
+      // Proxy Google Places API (New) text search & photos through Vite
+      '/maps-places': {
+        target: 'https://places.googleapis.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/maps-places/, ''),
+      },
+      // Proxy Open-Meteo live weather API through Vite
+      '/open-meteo': {
+        target: 'https://api.open-meteo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/open-meteo/, ''),
+      },
     },
   },
 })

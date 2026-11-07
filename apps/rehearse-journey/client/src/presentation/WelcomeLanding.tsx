@@ -88,9 +88,10 @@ export default function WelcomeLanding({
           <div className="welcome-duo flex items-end justify-center gap-1 sm:gap-2">
             <div className="flex flex-col items-center">
               <JoyMascot
-                state="speaking"
+                state="idle"
                 persona="joy"
                 facing="right"
+                behindDesk
                 companionLabel="Joy, your rehearsal companion"
                 reduceMotion={reduceMotion || stopAuto}
                 className="welcome-joy"

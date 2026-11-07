@@ -37,6 +37,7 @@ import SettingsDrawer from './presentation/SettingsDrawer'
 import Dashboard, { type DashboardSection } from './components/Dashboard'
 import Wellness from './components/Wellness'
 import Directions from './components/Directions'
+import CalmMe, { CALM_ME_OPEN_EVENT } from './components/CalmMe'
 
 const STATUS_NARRATION: Record<RolePlayState, string> = {
   idle: 'Ready to start. Press Start Rehearsal to connect to Joy.',
@@ -161,6 +162,18 @@ function RehearsalView() {
     const id = setInterval(() => setAloudSpeaking(ReadAloud.speaking), 400)
     return () => clearInterval(id)
   }, [readAloud])
+
+  // Decompress is independent of Pipecat, but an active rehearsal must yield
+  // its audio. Resuming the rehearsal remains an explicit user action.
+  useEffect(() => {
+    const pauseForCalmMe = () => {
+      if (state === 'listening' || state === 'speaking' || state === 'connecting') {
+        void stopSession('paused')
+      }
+    }
+    window.addEventListener(CALM_ME_OPEN_EVENT, pauseForCalmMe)
+    return () => window.removeEventListener(CALM_ME_OPEN_EVENT, pauseForCalmMe)
+  }, [state, stopSession])
 
   const buildNarration = useCallback(() => {
     const lastJoy = [...turns].reverse().find(t => t.speaker === 'Joy')
@@ -724,6 +737,7 @@ export default function App() {
   return (
     <PipecatClientProvider client={client}>
       <RehearsalView />
+      <CalmMe />
     </PipecatClientProvider>
   )
 }

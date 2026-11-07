@@ -19,7 +19,6 @@ import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
 import { Button } from '@/components/ui/button'
 import {
   ReadAloud,
-  openPersonaLogin,
   selectPersonaProfile,
   setToolkitAdapter,
   simplifyStepText,
@@ -37,7 +36,6 @@ import ToolkitProfileAndSkillsPanel, {
   useToolkitPreferences,
 } from './presentation/ToolkitProfileAndSkillsPanel'
 import {
-  PersonaLoginScreen,
   PersonaQuickReplyChips,
   PersonaTopBar,
   PersonaWorkspaceCallout,
@@ -201,7 +199,7 @@ function RehearsalView() {
   }, [turns, state, plainWords])
 
   const isConnected = state === 'listening' || state === 'speaking'
-  const { activePersonaId, showPersonaLogin } = toolkitSnap
+  const { activePersonaId } = toolkitSnap
 
   // Existing automated SDK regression tests inject `window.testCalls = []` on App.tsx load.
   // Keep their exact baseline entry unless `window.testPersonaShowcase` is enabled.
@@ -222,31 +220,6 @@ function RehearsalView() {
     [buildNarration, currentScenario.defaultStoryId, handleToggleClarity, setChaosLevel, setStoryId],
   )
 
-  const handleReturnToPersonaLogin = useCallback(() => {
-    void (async () => {
-      if (isConnected || state === 'connecting' || state === 'paused') {
-        await stopSession('ended')
-      }
-      setTurns([])
-      setTypedInput('')
-      setError('')
-      setDashboardSection(null)
-      setReadAloud(false)
-      setAloudSpeaking(false)
-      setState('idle')
-      openPersonaLogin()
-    })()
-  }, [isConnected, setError, setReadAloud, setState, setTurns, setTypedInput, state, stopSession])
-
-  if (state === 'idle' && !dashboardSection && showPersonaLogin && !isLegacySdkTest) {
-    return (
-      <PersonaLoginScreen
-        activePersonaId={activePersonaId}
-        onSelectPersona={handleSelectPersona}
-      />
-    )
-  }
-
   if (state === 'idle' && !dashboardSection) {
     return (
       <>
@@ -254,7 +227,6 @@ function RehearsalView() {
           <PersonaTopBar
             activePersonaId={activePersonaId}
             onSwitchPersona={handleSelectPersona}
-            onOpenLoginScreen={handleReturnToPersonaLogin}
           />
         )}
         <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-8 px-5 py-8">
@@ -276,7 +248,6 @@ function RehearsalView() {
           <PersonaTopBar
             activePersonaId={activePersonaId}
             onSwitchPersona={handleSelectPersona}
-            onOpenLoginScreen={handleReturnToPersonaLogin}
           />
         )}
         <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-8">
@@ -302,7 +273,6 @@ function RehearsalView() {
           <PersonaTopBar
             activePersonaId={activePersonaId}
             onSwitchPersona={handleSelectPersona}
-            onOpenLoginScreen={handleReturnToPersonaLogin}
           />
         )}
         <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[760px] flex-col gap-6 px-5 py-8">
@@ -370,7 +340,6 @@ function RehearsalView() {
           <PersonaTopBar
             activePersonaId={activePersonaId}
             onSwitchPersona={handleSelectPersona}
-            onOpenLoginScreen={handleReturnToPersonaLogin}
           />
         )}
         <WelcomeLanding
@@ -395,7 +364,6 @@ function RehearsalView() {
         <PersonaTopBar
           activePersonaId={activePersonaId}
           onSwitchPersona={handleSelectPersona}
-          onOpenLoginScreen={handleReturnToPersonaLogin}
         />
       )}
       <main className="rehearsal-shell rehearsal-duo-layout mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-6 sm:py-8 lg:gap-10 lg:py-10">

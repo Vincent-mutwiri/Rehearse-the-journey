@@ -668,17 +668,55 @@ export const PERSONA_PROFILES: PersonaProfileDef[] = [
 ]
 
 // ── Shared Reactive State Across Simulations & Directions ────────────────────
+export type UiLayoutMode = 'standard' | 'calm-sanctuary' | 'structured-steps'
+export type UiReadingAidMode = 'default' | 'plain-words' | 'bionic-focus' | 'bionic-with-ruler'
+export type UiMotionControlMode = 'animated' | 'still'
+export type UiConversationAidMode = 'standard' | 'calm-starters' | 'quick-reply-chips'
+
+export interface UiPersonalizationSettings {
+  theme: PersonaUiMode
+  layoutDensity: UiLayoutMode
+  readingAid: UiReadingAidMode
+  motionControl: UiMotionControlMode
+  conversationAid: UiConversationAidMode
+}
+
 export interface ToolkitRuntimeState {
   adapters: Record<ToolkitAdapterKey, boolean>
   activeProfileId: string
   activePersonaId: PersonaProfileId
   showPersonaLogin: boolean
+  uiSettings: UiPersonalizationSettings
   activeSkillName: string | null
   lastObservation: string | null
   abilitySummary: {
     supportAreas: string[]
     webSettings: Record<string, unknown>
   }
+}
+
+const PERSONA_UI_SETTINGS_PRESETS: Record<PersonaProfileId, UiPersonalizationSettings> = {
+  baraka: {
+    theme: 'standard',
+    layoutDensity: 'standard',
+    readingAid: 'default',
+    motionControl: 'animated',
+    conversationAid: 'standard',
+  },
+  zawadi: {
+    theme: 'sensory-calm',
+    layoutDensity: 'calm-sanctuary',
+    readingAid: 'plain-words',
+    motionControl: 'still',
+    conversationAid: 'calm-starters',
+  },
+  kamau: {
+    theme: 'reading-focus',
+    layoutDensity: 'structured-steps',
+    readingAid: 'bionic-with-ruler',
+    motionControl: 'animated',
+    conversationAid: 'quick-reply-chips',
+  },
 }
 
 const state: ToolkitRuntimeState = {
@@ -695,7 +733,8 @@ const state: ToolkitRuntimeState = {
   },
   activeProfileId: 'standard',
   activePersonaId: 'baraka',
-  showPersonaLogin: true,
+  showPersonaLogin: false,
+  uiSettings: { ...PERSONA_UI_SETTINGS_PRESETS.baraka },
   activeSkillName: null,
   lastObservation: null,
   abilitySummary: {
@@ -723,6 +762,7 @@ export function getToolkitState(): ToolkitRuntimeState {
   return {
     ...state,
     adapters: { ...state.adapters },
+    uiSettings: { ...state.uiSettings },
     abilitySummary: {
       supportAreas: [...state.abilitySummary.supportAreas],
       webSettings: { ...state.abilitySummary.webSettings },
@@ -817,6 +857,40 @@ export function setToolkitAdapter(
   state.adapters[key] = enabled
   syncDomAdapter(key, enabled, options?.narrationText)
 
+  // Keep UI Personalization Settings & theme aligned when adapters are toggled directly
+  if (key === 'sensoryCalm') {
+    if (enabled) {
+      state.uiSettings.theme = 'sensory-calm'
+      state.uiSettings.layoutDensity = 'calm-sanctuary'
+      state.uiSettings.conversationAid = 'calm-starters'
+      state.activePersonaId = 'zawadi'
+      syncPersonaBodyAttr('sensory-calm')
+    } else if (!state.adapters.bionicReading && !state.adapters.readingRuler) {
+      state.uiSettings.theme = 'standard'
+      state.uiSettings.layoutDensity = 'standard'
+      state.activePersonaId = 'baraka'
+      syncPersonaBodyAttr('standard')
+    }
+  } else if (key === 'bionicReading' || key === 'readingRuler') {
+    if (enabled) {
+      state.uiSettings.theme = 'reading-focus'
+      state.uiSettings.layoutDensity = 'structured-steps'
+      state.uiSettings.conversationAid = 'quick-reply-chips'
+      state.uiSettings.readingAid = state.adapters.readingRuler ? 'bionic-with-ruler' : 'bionic-focus'
+      state.activePersonaId = 'kamau'
+      syncPersonaBodyAttr('reading-focus')
+    } else if (!state.adapters.bionicReading && !state.adapters.readingRuler) {
+      state.uiSettings.readingAid = state.adapters.plainWords ? 'plain-words' : 'default'
+    }
+  } else if (key === 'reduceMotion' || key === 'stopAuto') {
+    state.uiSettings.motionControl =
+      state.adapters.reduceMotion || state.adapters.stopAuto ? 'still' : 'animated'
+  } else if (key === 'plainWords') {
+    if (!state.adapters.bionicReading && !state.adapters.readingRuler) {
+      state.uiSettings.readingAid = enabled ? 'plain-words' : 'default'
+    }
+  }
+
   if (!options?.silentObservation) {
     const meta = TOOLKIT_ADAPTER_CATALOG.find(a => a.key === key)
     const obsText = `${enabled ? 'Enabled' : 'Disabled'} ${meta?.id ?? key} on Rehearse the Journey (${options?.origin ?? 'app'}).`
@@ -832,6 +906,76 @@ export function setToolkitAdapter(
       })
       .catch(() => {})
   }
+  emitChange()
+}
+
+export function setUiPersonalizationSetting(
+  patch: Partial<UiPersonalizationSettings>,
+  options?: { narrationText?: string },
+): void {
+  state.uiSettings = { ...state.uiSettings, ...patch }
+
+  if (patch.theme) {
+    syncPersonaBodyAttr(patch.theme)
+    if (patch.theme === 'sensory-calm') {
+      state.adapters.sensoryCalm = true
+      syncDomAdapter('sensoryCalm', true)
+      if (!patch.layoutDensity) state.uiSettings.layoutDensity = 'calm-sanctuary'
+      if (!patch.conversationAid) state.uiSettings.conversationAid = 'calm-starters'
+      state.activePersonaId = 'zawadi'
+    } else if (patch.theme === 'reading-focus') {
+      state.adapters.sensoryCalm = false
+      syncDomAdapter('sensoryCalm', false)
+      if (!patch.layoutDensity) state.uiSettings.layoutDensity = 'structured-steps'
+      if (!patch.conversationAid) state.uiSettings.conversationAid = 'quick-reply-chips'
+      state.activePersonaId = 'kamau'
+    } else {
+      state.adapters.sensoryCalm = false
+      syncDomAdapter('sensoryCalm', false)
+      if (!patch.layoutDensity) state.uiSettings.layoutDensity = 'standard'
+      if (!patch.conversationAid) state.uiSettings.conversationAid = 'standard'
+      state.activePersonaId = 'baraka'
+    }
+  }
+
+  if (patch.layoutDensity) {
+    if (patch.layoutDensity === 'calm-sanctuary') {
+      state.activePersonaId = 'zawadi'
+    } else if (patch.layoutDensity === 'structured-steps') {
+      state.activePersonaId = 'kamau'
+    } else {
+      state.activePersonaId = 'baraka'
+    }
+  }
+
+  if (patch.readingAid) {
+    const plain = patch.readingAid !== 'default'
+    const bionic = patch.readingAid === 'bionic-focus' || patch.readingAid === 'bionic-with-ruler'
+    const ruler = patch.readingAid === 'bionic-with-ruler'
+    state.adapters.plainWords = plain
+    state.adapters.bionicReading = bionic
+    state.adapters.readingRuler = ruler
+    if (bionic) {
+      state.adapters.bigTargets = true
+      syncDomAdapter('bigTargets', true)
+    }
+    syncDomAdapter('plainWords', plain)
+    syncDomAdapter('readingRuler', ruler)
+    syncDomAdapter('bionicReading', bionic, options?.narrationText)
+  }
+
+  if (patch.motionControl) {
+    const still = patch.motionControl === 'still'
+    state.adapters.reduceMotion = still
+    state.adapters.stopAuto = still
+    syncDomAdapter('reduceMotion', still)
+    syncDomAdapter('stopAuto', still)
+  }
+
+  state.showPersonaLogin = false
+  state.lastObservation = `Updated UI personalization settings (${Object.entries(patch)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')}).`
   emitChange()
 }
 
@@ -856,6 +1000,7 @@ export async function selectPersonaProfile(
   const persona = getPersonaProfile(personaId)
   state.activePersonaId = persona.id
   state.showPersonaLogin = false
+  state.uiSettings = { ...PERSONA_UI_SETTINGS_PRESETS[persona.id] }
   syncPersonaBodyAttr(persona.uiMode)
   await applyToolkitProfilePreset(persona.toolkitPresetId, options)
   state.lastObservation = `Signed in as ${persona.name} (${persona.uiModeLabel}).`
@@ -882,6 +1027,7 @@ export async function applyToolkitProfilePreset(
   const matchingPersona = PERSONA_PROFILES.find(p => p.toolkitPresetId === preset.id)
   if (matchingPersona) {
     state.activePersonaId = matchingPersona.id
+    state.uiSettings = { ...PERSONA_UI_SETTINGS_PRESETS[matchingPersona.id] }
     syncPersonaBodyAttr(matchingPersona.uiMode)
   }
 

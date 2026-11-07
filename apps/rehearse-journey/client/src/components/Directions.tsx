@@ -234,6 +234,60 @@ function buildIllustratedPlaceSvg(title: string, subtitle: string, accent: strin
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
+// Map a Google Routes API maneuver code to:
+//  - an arrow SVG path (drawn inside a 64x64 viewBox) representing the turn,
+//  - a human label like "Turn left", "Continue", "Take the roundabout",
+//  - a color theme (calm sage for straight/continue, peach for turns, lavender for roundabouts/u-turns).
+interface ManeuverGraphic {
+  arrowPath: string
+  label: string
+  color: 'sage' | 'peach' | 'lavender'
+}
+function maneuverGraphic(maneuver: string | undefined): ManeuverGraphic {
+  const m = (maneuver || '').toUpperCase()
+  if (m === 'DEPART' || m === 'DESTINATION' || m === 'STRAIGHT' || m === 'NAME_CHANGE' || !m) {
+    return { arrowPath: 'M32 56 V14 M22 24 L32 14 L42 24', label: 'Start / Continue', color: 'sage' }
+  }
+  if (m === 'TURN_LEFT' || m === 'SHARP_LEFT' || m === 'TURN_SLIGHT_LEFT' || m === 'KEEP_LEFT') {
+    return { arrowPath: 'M40 56 V32 Q40 22 30 22 L18 22 M28 12 L18 22 L28 32', label: 'Turn left', color: 'peach' }
+  }
+  if (m === 'TURN_RIGHT' || m === 'SHARP_RIGHT' || m === 'TURN_SLIGHT_RIGHT' || m === 'KEEP_RIGHT') {
+    return { arrowPath: 'M24 56 V32 Q24 22 34 22 L46 22 M36 12 L46 22 L36 32', label: 'Turn right', color: 'peach' }
+  }
+  if (m.startsWith('UTURN')) {
+    return { arrowPath: 'M40 56 V30 Q40 14 24 14 Q14 14 14 24 L14 30 M8 24 L14 30 L20 24', label: 'U-turn', color: 'lavender' }
+  }
+  if (m.startsWith('ROUNDABOUT') || m === 'FORK' || m === 'MERGE') {
+    return {
+      arrowPath: 'M32 56 V34 M32 34 A10 10 0 1 0 22 24 M22 24 L18 14 M26 16 L18 14 L18 22',
+      label: m.startsWith('ROUNDABOUT') ? 'Take the roundabout' : m === 'MERGE' ? 'Merge' : 'Fork',
+      color: 'lavender',
+    }
+  }
+  return { arrowPath: 'M32 56 V14 M22 24 L32 14 L42 24', label: 'Continue', color: 'sage' }
+}
+
+const MANEUVER_COLOR_TOKEN: Record<ManeuverGraphic['color'], { bg: string; stroke: string; fill: string; text: string }> = {
+  sage: { bg: '#e6f0e8', stroke: '#5a8b6e', fill: '#8fb39b', text: '#3a4d42' },
+  peach: { bg: '#fdeede', stroke: '#c9774f', fill: '#f4c6a6', text: '#6b3b22' },
+  lavender: { bg: '#ece8f4', stroke: '#6a5d9c', fill: '#a89bd4', text: '#3a3358' },
+}
+
+// Build a small SVG "maneuver sign" for a route step.
+// Returns a data:image/svg+xml URI suitable for <img src>.
+function buildManeuverSignSvg(stepNumber: number, maneuver: string | undefined): string {
+  const graphic = maneuverGraphic(maneuver)
+  const tokens = MANEUVER_COLOR_TOKEN[graphic.color]
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="${graphic.label}, step ${stepNumber}">
+    <rect width="96" height="96" rx="20" fill="${tokens.bg}" stroke="${tokens.stroke}" stroke-width="2" stroke-opacity="0.5"/>
+    <circle cx="48" cy="48" r="34" fill="#fbf7f2" opacity="0.55"/>
+    <path d="${graphic.arrowPath}" fill="none" stroke="${tokens.stroke}" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="14" cy="82" r="9" fill="${tokens.fill}" stroke="${tokens.stroke}" stroke-width="2"/>
+    <text x="14" y="86" font-family="system-ui, sans-serif" font-size="11" font-weight="800" fill="${tokens.text}" text-anchor="middle">${stepNumber}</text>
+  </svg>`
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+}
+
 function interpretWeatherCode(code: number): { label: string; note: string } {
   if (code === 0) return { label: 'Clear sky', note: 'Bright daylight — sunglasses or a cap may feel comfortable.' }
   if (code === 1 || code === 2) return { label: 'Partly cloudy', note: 'Mild, comfortable light with gentle cloud cover.' }
@@ -1695,18 +1749,18 @@ export default function Directions({
                     className={
                       'directions-step cursor-pointer rounded-xl border p-3.5 transition-colors ' +
                       (isActiveStep
-                        ? 'border-lavender bg-lavender/20'
+                        ? 'is-active border-lavender bg-lavender/20'
                         : 'border-ink/10 bg-cream/60 hover:border-lavender/50 hover:bg-white')
                     }
                   >
-                    <span
-                      className={
-                        'directions-step-num ' +
-                        (isActiveStep ? 'bg-ink text-cream' : 'bg-mist text-ink')
-                      }
-                    >
-                      {i + 1}
-                    </span>
+                    <img
+                      src={buildManeuverSignSvg(i + 1, s.maneuver)}
+                      alt={`${maneuverGraphic(s.maneuver).label} (step ${i + 1})`}
+                      width={56}
+                      height={56}
+                      className="directions-step-sign shrink-0 rounded-xl"
+                      aria-hidden="false"
+                    />
                     <div className="min-w-0 flex-1">
                       <span className="directions-step-text block font-medium">
                         {plainWords ? simplifyDirectionInstruction(s.instruction) : s.instruction}

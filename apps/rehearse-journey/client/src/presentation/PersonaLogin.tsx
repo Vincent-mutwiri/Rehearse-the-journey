@@ -18,8 +18,14 @@ import {
   PERSONA_PROFILES,
   getPersonaProfile,
   setToolkitAdapter,
+  setUiPersonalizationSetting,
   type PersonaProfileDef,
   type PersonaProfileId,
+  type PersonaUiMode,
+  type UiConversationAidMode,
+  type UiLayoutMode,
+  type UiMotionControlMode,
+  type UiReadingAidMode,
 } from '@/rehearsalToolkit'
 import { useToolkitPreferences } from './ToolkitProfileAndSkillsPanel'
 import { CALM_ME_OPEN_EVENT } from '@/components/CalmMe'
@@ -309,6 +315,13 @@ export function PersonaLoginScreen({
       </section>
 
       <section
+        aria-label="Personalize UI through settings"
+        className="rounded-3xl border-2 border-ink/15 bg-white/85 p-6 shadow-xs"
+      >
+        <UiPersonalizationSettingsStudio showLaunchButton />
+      </section>
+
+      <section
         aria-label="How personalization works across the three people"
         className="rounded-3xl border border-ink/12 bg-white/75 p-6"
       >
@@ -354,17 +367,17 @@ export function PersonaLoginScreen({
 export interface PersonaTopBarProps {
   activePersonaId: PersonaProfileId
   onSwitchPersona: (persona: PersonaProfileDef) => void
-  onOpenLoginScreen: () => void
 }
 
 export function PersonaTopBar({
   activePersonaId,
   onSwitchPersona,
-  onOpenLoginScreen,
 }: PersonaTopBarProps) {
   const persona = getPersonaProfile(activePersonaId)
+  const personaIdx = PERSONA_PROFILES.findIndex(p => p.id === persona.id) + 1
   const toolkitSnap = useToolkitPreferences()
   const [showDetails, setShowDetails] = useState(false)
+  const [showSettingsStudio, setShowSettingsStudio] = useState(false)
 
   const activeAdapterCount = Object.values(toolkitSnap.adapters).filter(Boolean).length
 
@@ -385,12 +398,14 @@ export function PersonaTopBar({
             <PersonaAvatar personaId={persona.id} size={42} />
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-bold text-ink">{persona.name}</span>
+                <span className="text-sm font-bold text-ink">
+                  Person {personaIdx} · {persona.conditionBadge}
+                </span>
                 <span
                   style={{ backgroundColor: `${persona.accentColor}33` }}
                   className="rounded-full px-2.5 py-0.5 text-[11px] font-bold text-ink"
                 >
-                  {persona.uiModeLabel}
+                  {persona.name} ({persona.uiModeLabel})
                 </span>
                 <span className="rounded-full border border-ink/15 bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-ink/80">
                   {activeAdapterCount === 0
@@ -398,41 +413,23 @@ export function PersonaTopBar({
                     : `${activeAdapterCount} Toolkit adapters active`}
                 </span>
               </div>
-              <p className="text-xs text-ink/75">{persona.role} · {persona.conditionBadge}</p>
+              <p className="text-xs text-ink/75">{persona.role} · {persona.ageAndCity}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div
-              className="flex flex-wrap items-center gap-1.5"
-              role="group"
-              aria-label="Quick switch person UI"
+            {/* Persona quick-switch buttons (Person 1/2/3) removed for now — keep the
+                active-persona display + UI Settings + What changed? controls above.
+                To restore: re-render the PERSONA_PROFILES.map(...) button group here. */}
+
+            <button
+              type="button"
+              onClick={() => setShowSettingsStudio(v => !v)}
+              aria-expanded={showSettingsStudio}
+              className="min-h-[36px] cursor-pointer rounded-full border border-ink/25 bg-ink px-3.5 py-1 text-xs font-bold text-cream hover:opacity-90"
             >
-              {PERSONA_PROFILES.map(p => {
-                const selected = p.id === activePersonaId
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => onSwitchPersona(p)}
-                    style={
-                      selected
-                        ? { backgroundColor: p.accentColor, borderColor: '#2b253a' }
-                        : undefined
-                    }
-                    className={
-                      'min-h-[36px] cursor-pointer rounded-full border px-3 py-1 text-xs font-bold transition-colors ' +
-                      (selected
-                        ? 'text-ink shadow-xs'
-                        : 'border-ink/20 bg-white/80 text-ink/80 hover:bg-white')
-                    }
-                  >
-                    {p.shortName} ({p.id === 'baraka' ? 'Standard' : p.id === 'zawadi' ? 'Sensory-Calm' : 'Focus/Dyslexia'})
-                  </button>
-                )
-              })}
-            </div>
+              {showSettingsStudio ? '✕ Close UI Settings' : '⚙️ UI Settings'}
+            </button>
 
             <button
               type="button"
@@ -442,16 +439,14 @@ export function PersonaTopBar({
             >
               {showDetails ? 'Hide UI changes' : 'What changed?'}
             </button>
-
-            <button
-              type="button"
-              onClick={onOpenLoginScreen}
-              className="min-h-[36px] cursor-pointer rounded-full border border-ink/25 bg-ink px-3.5 py-1 text-xs font-semibold text-cream hover:opacity-90"
-            >
-              ⇄ Switch Person (Login)
-            </button>
           </div>
         </div>
+
+        {showSettingsStudio && (
+          <div className="border-t border-ink/15 pt-3">
+            <UiPersonalizationSettingsStudio compact />
+          </div>
+        )}
 
         {showDetails && (
           <div className="grid grid-cols-1 gap-3 border-t border-ink/12 pt-3 text-xs sm:grid-cols-2">
@@ -688,28 +683,30 @@ export function PersonaQuickReplyChips({
   activePersonaId: PersonaProfileId
   onSelectPhrase: (phrase: string) => void
 }) {
-  if (activePersonaId === 'baraka') return null
+  const toolkitSnap = useToolkitPreferences()
+  const aidMode = toolkitSnap.uiSettings.conversationAid
+  if (activePersonaId === 'baraka' && aidMode === 'standard') return null
 
-  const phrases =
-    activePersonaId === 'zawadi'
-      ? [
-          'Hello Joy, I am here for my pretend appointment.',
-          'Could you repeat that slowly, one step at a time?',
-          'I have my pretend clinic card ready.',
-          'I need a quiet moment to check where Waiting Area B is.',
-        ]
-      : [
-          'Hello Joy, I am here for my pretend appointment.',
-          'Yes, I brought my pretend clinic card.',
-          'Please tell me the 2 main landmarks to Waiting Area B.',
-          'Can you break that instruction into shorter steps?',
-        ]
+  const isCalmStarters = activePersonaId === 'zawadi' || aidMode === 'calm-starters'
+  const phrases = isCalmStarters
+    ? [
+        'Hello Joy, I am here for my pretend appointment.',
+        'Could you repeat that slowly, one step at a time?',
+        'I have my pretend clinic card ready.',
+        'I need a quiet moment to check where Waiting Area B is.',
+      ]
+    : [
+        'Hello Joy, I am here for my pretend appointment.',
+        'Yes, I brought my pretend clinic card.',
+        'Please tell me the 2 main landmarks to Waiting Area B.',
+        'Can you break that instruction into shorter steps?',
+      ]
 
   return (
     <div
       className={
         'rounded-2xl border-2 p-3.5 ' +
-        (activePersonaId === 'zawadi'
+        (isCalmStarters
           ? 'border-[#6b9e82]/60 bg-[#e6f2ea]/85'
           : 'border-[#d48b3b]/70 bg-[#faefd8]/90')
       }
@@ -718,9 +715,9 @@ export function PersonaQuickReplyChips({
     >
       <p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-ink">
         <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
-        {activePersonaId === 'zawadi'
-          ? 'Zawadi’s Calm Starter Phrases (Tap to fill the message box without pressure):'
-          : 'Kamau’s 1-Tap Quick-Reply Bank (No need to type or spell from scratch):'}
+        {isCalmStarters
+          ? 'Calm Starter Phrases (Tap to fill the message box without pressure):'
+          : '1-Tap Quick-Reply Bank (No need to type or spell from scratch):'}
       </p>
       <div className="flex flex-wrap gap-2">
         {phrases.map(phrase => (
@@ -734,6 +731,275 @@ export function PersonaQuickReplyChips({
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+export function UiPersonalizationSettingsStudio({
+  compact = false,
+  showLaunchButton = false,
+}: {
+  compact?: boolean
+  showLaunchButton?: boolean
+}) {
+  const toolkitSnap = useToolkitPreferences()
+  const { uiSettings, activePersonaId } = toolkitSnap
+  const currentPersona = getPersonaProfile(activePersonaId)
+
+  const themeOptions: Array<{ id: PersonaUiMode; label: string; desc: string; swatch: string }> = [
+    {
+      id: 'standard',
+      label: 'Soft-Mirror (Standard)',
+      desc: 'Cream & lavender baseline (#FBF7F2)',
+      swatch: '#a89bd4',
+    },
+    {
+      id: 'sensory-calm',
+      label: 'Sage Sanctuary (Sensory-Calm)',
+      desc: 'Low-glare eucalyptus & calm borders (#EEF5F1)',
+      swatch: '#6b9e82',
+    },
+    {
+      id: 'reading-focus',
+      label: 'Warm Amber Paper (Focus/Dyslexia)',
+      desc: 'Dyslexia paper tint & left accent stripe (#FDF8EC)',
+      swatch: '#d48b3b',
+    },
+  ]
+
+  const layoutOptions: Array<{ id: UiLayoutMode; label: string; desc: string }> = [
+    {
+      id: 'standard',
+      label: 'Standard 2-Card Workspace',
+      desc: 'Full density with Simulations & Directions',
+    },
+    {
+      id: 'calm-sanctuary',
+      label: 'Calm Sanctuary Layout',
+      desc: 'De-cluttered + Sensory Load Meter + 1-Tap Decompress',
+    },
+    {
+      id: 'structured-steps',
+      label: '3-Step Numbered Checklist Layout',
+      desc: 'Visual Story Map first + 3-step executive checklist',
+    },
+  ]
+
+  const readingOptions: Array<{ id: UiReadingAidMode; label: string; desc: string }> = [
+    { id: 'default', label: 'Standard Text', desc: 'Default Geist typography' },
+    { id: 'plain-words', label: 'Plainer Words', desc: 'Simplified plain-English instructions' },
+    {
+      id: 'bionic-focus',
+      label: 'Bionic Word-Anchors',
+      desc: 'Bold word prefixes + 44px+ buttons',
+    },
+    {
+      id: 'bionic-with-ruler',
+      label: 'Bionic + Reading Ruler',
+      desc: 'Bold prefixes + cursor highlight band',
+    },
+  ]
+
+  const motionOptions: Array<{ id: UiMotionControlMode; label: string; desc: string }> = [
+    { id: 'animated', label: 'Live 3D Motion', desc: 'Animated Joy & Amani rigs' },
+    { id: 'still', label: 'Freeze Motion & Timers', desc: 'Still 3D poses + Stop Auto-Advance' },
+  ]
+
+  const conversationOptions: Array<{ id: UiConversationAidMode; label: string; desc: string }> = [
+    { id: 'standard', label: 'Standard Input', desc: 'Type or speak freely' },
+    {
+      id: 'calm-starters',
+      label: 'Calm Starter Prompts',
+      desc: 'Reassuring slow-pace starter chips',
+    },
+    {
+      id: 'quick-reply-chips',
+      label: '1-Tap Quick-Reply Bank',
+      desc: 'Tap-to-fill replies for low typing load',
+    },
+  ]
+
+  return (
+    <div className="space-y-4 text-left" role="region" aria-label="UI Personalization Settings Studio">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className={compact ? 'text-sm font-bold text-ink' : 'text-base font-bold text-ink'}>
+            ⚙️ UI Personalization Settings — Choose Settings to Switch the UI
+          </h3>
+          <p className="text-xs text-ink/75">
+            Instead of only picking a person, adjust any setting below to reshape the website’s
+            color theme, workspace layout, reading aids, 3D motion, and conversation scaffolding.
+          </p>
+        </div>
+        <span className="rounded-full border border-ink/20 bg-white px-3 py-1 text-xs font-bold text-ink">
+          Active UI: {currentPersona.uiModeLabel}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-3">
+        {/* 1. Visual Theme */}
+        <fieldset className="rounded-2xl border border-ink/15 bg-white/90 p-3">
+          <legend className="px-1 text-xs font-bold text-ink">1. Visual Theme &amp; Surface</legend>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {themeOptions.map(opt => {
+              const active = uiSettings.theme === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setUiPersonalizationSetting({ theme: opt.id })}
+                  className={
+                    'flex min-h-[42px] cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-1.5 text-left text-xs transition-colors ' +
+                    (active
+                      ? 'border-ink bg-lavender/25 font-bold text-ink'
+                      : 'border-ink/15 bg-white text-ink/85 hover:bg-cream')
+                  }
+                >
+                  <span
+                    style={{ backgroundColor: opt.swatch }}
+                    className="h-3.5 w-3.5 shrink-0 rounded-full border border-ink/30"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <span className="block font-bold">{opt.label}</span>
+                    <span className="block text-[11px] font-normal opacity-75">{opt.desc}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+
+        {/* 2. Workspace Layout */}
+        <fieldset className="rounded-2xl border border-ink/15 bg-white/90 p-3">
+          <legend className="px-1 text-xs font-bold text-ink">
+            2. Workspace Layout &amp; Density
+          </legend>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {layoutOptions.map(opt => {
+              const active = uiSettings.layoutDensity === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setUiPersonalizationSetting({ layoutDensity: opt.id })}
+                  className={
+                    'flex min-h-[42px] cursor-pointer flex-col justify-center rounded-xl border px-3 py-1.5 text-left text-xs transition-colors ' +
+                    (active
+                      ? 'border-ink bg-lavender/25 font-bold text-ink'
+                      : 'border-ink/15 bg-white text-ink/85 hover:bg-cream')
+                  }
+                >
+                  <span className="font-bold">{opt.label}</span>
+                  <span className="text-[11px] font-normal opacity-75">{opt.desc}</span>
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+
+        {/* 3. Reading & Typography */}
+        <fieldset className="rounded-2xl border border-ink/15 bg-white/90 p-3">
+          <legend className="px-1 text-xs font-bold text-ink">
+            3. Reading &amp; Typography Aid
+          </legend>
+          <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2 md:grid-cols-1">
+            {readingOptions.map(opt => {
+              const active = uiSettings.readingAid === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setUiPersonalizationSetting({ readingAid: opt.id })}
+                  className={
+                    'flex min-h-[38px] cursor-pointer flex-col justify-center rounded-xl border px-3 py-1 text-left text-xs transition-colors ' +
+                    (active
+                      ? 'border-ink bg-lavender/25 font-bold text-ink'
+                      : 'border-ink/15 bg-white text-ink/85 hover:bg-cream')
+                  }
+                >
+                  <span className="font-bold">{opt.label}</span>
+                  <span className="text-[11px] font-normal opacity-75">{opt.desc}</span>
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+        {/* 4. Motion & Pacing */}
+        <fieldset className="rounded-2xl border border-ink/15 bg-white/90 p-3">
+          <legend className="px-1 text-xs font-bold text-ink">4. 3D Motion &amp; Timers</legend>
+          <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {motionOptions.map(opt => {
+              const active = uiSettings.motionControl === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setUiPersonalizationSetting({ motionControl: opt.id })}
+                  className={
+                    'flex min-h-[42px] cursor-pointer flex-col justify-center rounded-xl border px-3 py-1.5 text-left text-xs transition-colors ' +
+                    (active
+                      ? 'border-ink bg-lavender/25 font-bold text-ink'
+                      : 'border-ink/15 bg-white text-ink/85 hover:bg-cream')
+                  }
+                >
+                  <span className="font-bold">{opt.label}</span>
+                  <span className="text-[11px] font-normal opacity-75">{opt.desc}</span>
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+
+        {/* 5. Conversation Reply Scaffolding */}
+        <fieldset className="rounded-2xl border border-ink/15 bg-white/90 p-3">
+          <legend className="px-1 text-xs font-bold text-ink">
+            5. Conversation Reply Scaffolding
+          </legend>
+          <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+            {conversationOptions.map(opt => {
+              const active = uiSettings.conversationAid === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setUiPersonalizationSetting({ conversationAid: opt.id })}
+                  className={
+                    'flex min-h-[42px] cursor-pointer flex-col justify-center rounded-xl border px-2.5 py-1.5 text-left text-xs transition-colors ' +
+                    (active
+                      ? 'border-ink bg-lavender/25 font-bold text-ink'
+                      : 'border-ink/15 bg-white text-ink/85 hover:bg-cream')
+                  }
+                >
+                  <span className="font-bold">{opt.label}</span>
+                  <span className="text-[10px] font-normal opacity-75">{opt.desc}</span>
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+      </div>
+
+      {showLaunchButton && (
+        <div className="flex justify-end pt-1">
+          <button
+            type="button"
+            onClick={() => setUiPersonalizationSetting({ ...uiSettings })}
+            className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-full border border-ink/25 bg-ink px-5 py-2 text-xs font-bold text-cream hover:opacity-90"
+          >
+            <span>Open Workspace with These UI Settings</span>
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

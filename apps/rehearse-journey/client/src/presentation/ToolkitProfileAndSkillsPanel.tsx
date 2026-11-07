@@ -13,6 +13,7 @@ import {
   type ToolkitAdapterKey,
   type ToolkitRuntimeState,
 } from '@/rehearsalToolkit'
+import { UiPersonalizationSettingsStudio } from './PersonaLogin'
 
 export function useToolkitPreferences(): ToolkitRuntimeState {
   const [snap, setSnap] = useState<ToolkitRuntimeState>(() => getToolkitState())
@@ -100,6 +101,11 @@ export default function ToolkitProfileAndSkillsPanel({
       <details className="rehearsal-disclosure" open={defaultExpandToolkit || undefined}>
         <summary>Toolkit Profile, Skills &amp; Visual/Sensory Adapters</summary>
         <div className="space-y-5 pt-4 text-sm">
+          {/* 0. UI Personalization Settings Studio */}
+          <div className="border-b border-ink/10 pb-4">
+            <UiPersonalizationSettingsStudio compact />
+          </div>
+
           {/* 1. AbilityModel Profile Presets */}
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-1">

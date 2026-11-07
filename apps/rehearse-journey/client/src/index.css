@@ -205,7 +205,7 @@ input {
 .dashboard-grid { padding-block: clamp(24px, 5vw, 64px); }
 .dashboard-heading { margin: 0; font-size: clamp(28px, 3vw, 36px); font-weight: 600; line-height: 1.2; letter-spacing: -1px; }
 .dashboard-subtitle { max-width: 60ch; margin: 12px 0 28px; color: #655e76; line-height: 1.7; }
-.dashboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; }
+.dashboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 460px)); justify-content: center; gap: 18px; }
 .dashboard-card {
   --card-accent: var(--lavender);
   display: flex;
@@ -253,6 +253,8 @@ input {
 .directions-steps { display: flex; flex-direction: column; gap: 12px; padding: 0; list-style: none; }
 .directions-step { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-bottom: 1px solid var(--mist); }
 .directions-step-num { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--mist); font-size: 13px; font-weight: 600; }
+.directions-step-sign { width: 56px; height: 56px; flex-shrink: 0; border-radius: 14px; }
+.directions-step.is-active .directions-step-sign { box-shadow: 0 0 0 2px var(--lavender); }
 .directions-step-text { min-width: 0; line-height: 1.65; }
 
 /* Secondary rehearsal information and modal settings. */

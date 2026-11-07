@@ -5,7 +5,7 @@
  * Joy stays as the mascot throughout (shown in JoyCenterpiece).
  */
 
-import { Sprout, Navigation, ArrowRight, BookOpen, ShieldCheck } from 'lucide-react'
+import { Sprout, ArrowRight, BookOpen, ShieldCheck } from 'lucide-react'
 import JoyMascot from './JoyMascot'
 import type { PersonaProfileId } from '@/rehearsalToolkit'
 import { PersonaWorkspaceCallout } from '@/presentation/PersonaLogin'
@@ -40,13 +40,9 @@ const STANDARD_SECTIONS: SectionCardDef[] = [
     icon: Sprout,
     accent: 'lavender',
   },
-  {
-    id: 'directions',
-    title: 'Get Directions',
-    description: 'Enter where you want to go. See the route on a real map, how the place looks, key landmarks, crowd busyness, noise levels, and live weather.',
-    icon: Navigation,
-    accent: 'sage',
-  },
+  // 'directions' / Get Directions card removed from the dashboard UI for now.
+  // The Directions component + App.tsx routing branch are retained (see
+  // DashboardSection type + App.tsx), just not reachable from a card here.
 ]
 
 const ZAWADI_SECTIONS: SectionCardDef[] = [
@@ -58,14 +54,7 @@ const ZAWADI_SECTIONS: SectionCardDef[] = [
     icon: Sprout,
     accent: 'sage',
   },
-  {
-    id: 'directions',
-    title: 'Get Directions',
-    sensoryBadge: '🌿 Quiet Hours & Sensory Crowd Forecast',
-    description: 'Check quiet visiting hours, estimated crowd noise (dB), weather comfort, and plain-English route steps before you leave home.',
-    icon: Navigation,
-    accent: 'sage',
-  },
+  // 'directions' card removed from the Zawadi dashboard UI for now (code retained).
 ]
 
 const KAMAU_SECTIONS: SectionCardDef[] = [
@@ -85,14 +74,8 @@ const KAMAU_SECTIONS: SectionCardDef[] = [
     icon: Sprout,
     accent: 'lavender',
   },
-  {
-    id: 'directions',
-    title: 'Get Directions',
-    stepBadge: 'Step 3 · Landmark Route Steps',
-    description: 'Read numbered, plain-English route directions with bold word-anchors, matatu stages, and clear landmarks.',
-    icon: Navigation,
-    accent: 'sage',
-  },
+  // 'directions' card (Step 3 · Landmark Route Steps) removed from the Kamau
+  // dashboard UI for now (code retained). Steps 1 and 2 remain.
 ]
 
 export default function Dashboard({

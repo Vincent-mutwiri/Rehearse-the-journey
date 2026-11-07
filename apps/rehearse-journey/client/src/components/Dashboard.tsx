@@ -5,8 +5,7 @@
  * Joy stays as the mascot throughout (shown in JoyCenterpiece).
  */
 
-import { Sprout, Navigation, HeartPulse, Map, Camera, Mic, ArrowRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Sprout, Navigation, HeartPulse, ArrowRight } from 'lucide-react'
 
 export type DashboardSection =
   | 'simulations'

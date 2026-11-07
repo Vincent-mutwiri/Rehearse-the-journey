@@ -21,13 +21,14 @@ import {
   TorusGeometry,
   Vector2,
 } from 'three'
-import type { JoyPersona, JoyState } from './JoyMascot'
+import type { FacingDirection, JoyPersona, JoyState } from './JoyMascot'
 import JoyPlaceholder from './JoyPlaceholder'
 
 interface SceneProps {
   state: JoyState
   thinking?: boolean
   persona?: JoyPersona
+  facing?: FacingDirection
   encourageSignal: number
   still: boolean
 }
@@ -839,7 +840,7 @@ function buildRig() {
   }
 }
 
-function Character({ state, thinking = false, persona = 'joy', encourageSignal, still }: SceneProps) {
+function Character({ state, thinking = false, persona = 'joy', facing = 'default', encourageSignal, still }: SceneProps) {
   const rig = useMemo(() => buildRig(), []);
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -848,6 +849,7 @@ function Character({ state, thinking = false, persona = 'joy', encourageSignal, 
       w.buildTestJoyRig = buildRig
     }
   }, [rig])
+  const baseRotY = facing === 'right' ? 0.24 : facing === 'left' ? -0.24 : -0.12
   const motion = useRef({
     time: 0,
     nodStart: -100,
@@ -856,7 +858,7 @@ function Character({ state, thinking = false, persona = 'joy', encourageSignal, 
     squashStart: -100,
     cur: {
       rootY: 0,
-      rootRotY: -0.12,
+      rootRotY: baseRotY,
       rootRotX: 0,
       rootScaleX: 1,
       rootScaleY: 1,
@@ -970,7 +972,7 @@ function Character({ state, thinking = false, persona = 'joy', encourageSignal, 
 
     const targets = {
       rootY: 0,
-      rootRotY: -0.12 + (still ? 0 : Math.sin(t * 0.55 + m.drift) * 0.045 + (isConnecting ? Math.sin(t * 1.6) * 0.08 : 0) + (frameState.pointer?.x ?? 0) * 0.05),
+      rootRotY: baseRotY + (still ? 0 : Math.sin(t * 0.55 + m.drift) * 0.045 + (isConnecting ? Math.sin(t * 1.6) * 0.08 : 0) + (frameState.pointer?.x ?? 0) * 0.05),
       rootRotX: (isListening ? -0.03 : isThinking ? 0.02 : 0) + (frameState.pointer?.y ?? 0) * (still ? 0 : -0.03),
       rootScaleX: squashScaleXZ,
       rootScaleY: squashScaleY,

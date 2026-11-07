@@ -88,7 +88,7 @@ export default function CalmMe() {
       if (session !== sessionRef.current) return
       const next = index + 1
       setCountIndex(next)
-        speech.speak(DECOMPRESS_COUNTS[next], 0.9, () => advanceCount(next, session), speech.nextToken())
+        speech.speak(DECOMPRESS_COUNTS[next], 1.1, () => advanceCount(next, session), speech.nextToken())
     }, 600)
   }, [speech])
 
@@ -105,7 +105,7 @@ export default function CalmMe() {
         if (session !== sessionRef.current) return
         setCountIndex(0)
         setStatus('counting')
-        speech.speak(DECOMPRESS_COUNTS[0], 0.9, () => advanceCount(0, session), speech.nextToken())
+        speech.speak(DECOMPRESS_COUNTS[0], 1.1, () => advanceCount(0, session), speech.nextToken())
       }, 600)
     }, token)
   }, [advanceCount, speech])

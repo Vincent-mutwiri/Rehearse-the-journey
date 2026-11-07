@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Settings, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-export default function SettingsDrawer({ children }: { children: ReactNode }) {
+export default function SettingsDrawer({ children, context = 'practice' }: { children: ReactNode; context?: 'practice' | 'directions' }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const titleId = useId()
@@ -81,7 +81,7 @@ export default function SettingsDrawer({ children }: { children: ReactNode }) {
         </header>
         <div className="settings-drawer-body">
           {children}
-          <section aria-labelledby={`${titleId}-about`} className="border-t border-ink/15 pt-6">
+          {context === 'practice' && <section aria-labelledby={`${titleId}-about`} className="border-t border-ink/15 pt-6">
             <h3 id={`${titleId}-about`} className="mb-3 font-semibold">About this practice</h3>
             <p role="note" aria-label="Fictional scenario notice" className="text-sm leading-relaxed">
               <strong>Practice scenario — not a real hospital.</strong> This conversation is fictional
@@ -89,7 +89,7 @@ export default function SettingsDrawer({ children }: { children: ReactNode }) {
               typed messages and any enabled microphone audio are sent for replies. The mic starts off.
               This app does not save the transcript.
             </p>
-          </section>
+          </section>}
         </div>
       </dialog>
     </>

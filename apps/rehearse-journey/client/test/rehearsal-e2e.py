@@ -94,6 +94,7 @@ def main():
         expect(joy).to_have_attribute("data-state", "listening")
         page.evaluate("window.testClient.emit('botStartedSpeaking')")
         expect(joy).to_have_attribute("data-state", "speaking")
+        expect(page.locator('[data-speaker="primary"]')).to_have_attribute('data-active', 'true')
         page.evaluate("window.testClient.emit('botStoppedSpeaking')")
         expect(joy).to_have_attribute("data-state", "listening")
         toggle_setting(page, '🐢 Reduce motion')
@@ -117,6 +118,23 @@ def main():
         expect(page.get_by_label("Conversation transcript")).to_contain_text("pretend clinic card")
         calls = page.evaluate("window.testCalls.filter(c => c[0] === 'sendText')")
         assert calls[0][2] == {"run_immediately": True, "audio_response": True}
+
+        # Long replies wrap beneath equally sized mascots down to 320px.
+        page.evaluate("window.testClient.emit('botTranscript', {text: 'A long reply. '.repeat(50) + 'x'.repeat(180)})")
+        page.evaluate("window.testClient.emit('userTranscript', {text: 'My reply. '.repeat(50), final: true})")
+        for width in (1280, 768, 375, 320):
+            page.set_viewport_size({'width': width, 'height': 900})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Overflow at {width}px'
+            cards = page.locator('.joy-dialogue')
+            assert abs(cards.nth(0).bounding_box()['width'] - cards.nth(1).bounding_box()['width']) < 1
+            assert cards.evaluate_all('(cards) => cards.every(card => card.scrollWidth <= card.clientWidth && card.scrollHeight <= card.clientHeight)')
+            assert cards.nth(0).evaluate('(card) => getComputedStyle(card).fontSize') == '16px'
+            for index in range(2):
+                mascot = page.locator('.joy-dialogue-column > .joy').nth(index).bounding_box()
+                assert cards.nth(index).bounding_box()['y'] >= mascot['y'] + mascot['height']
+        page.screenshot(path='/tmp/simulations-mobile.png', full_page=True)
+        page.set_viewport_size({'width': 1280, 'height': 900})
+        page.screenshot(path='/tmp/simulations-desktop.png', full_page=True)
 
         draft.fill("fail this message")
         draft.press("Enter")

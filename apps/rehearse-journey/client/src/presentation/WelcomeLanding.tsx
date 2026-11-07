@@ -3,6 +3,8 @@ import { Sprout, Cross, BusFront, Landmark, Signpost, MessageCircle, MicOff, Pau
 import JoyMascot from '@/components/JoyMascot'
 import { Button } from '@/components/ui/button'
 import { LEVEL_LABELS, type ScenarioId } from '@/controller/v11ScenariosAndModes'
+import type { PersonaProfileId } from '@/rehearsalToolkit'
+import { PersonaWorkspaceCallout } from './PersonaLogin'
 
 export const SCENARIOS: Array<{
   id: ScenarioId
@@ -26,6 +28,8 @@ export interface WelcomeLandingProps {
   onStartScenario: (scenarioId: ScenarioId, level: 1 | 2 | 3 | 4) => void
   error: string
   onBackToDashboard?: () => void
+  personaId?: PersonaProfileId
+  showPersonaCallout?: boolean
 }
 
 export default function WelcomeLanding({
@@ -37,6 +41,8 @@ export default function WelcomeLanding({
   onStartScenario,
   error,
   onBackToDashboard,
+  personaId = 'baraka',
+  showPersonaCallout = false,
 }: WelcomeLandingProps) {
   return (
     <main className="welcome-shell">
@@ -60,6 +66,12 @@ export default function WelcomeLanding({
           <span className="welcome-nav-note">A space to try, at your pace.</span>
         </div>
       </header>
+
+      {showPersonaCallout && (
+        <div className="mt-5">
+          <PersonaWorkspaceCallout activePersonaId={personaId} context="simulations" />
+        </div>
+      )}
 
       <section className="welcome-hero" aria-labelledby="welcome-title">
         <div className="welcome-intro">

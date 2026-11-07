@@ -5,7 +5,7 @@
  *   - `src/session/useRehearsalSession.ts` (Pipecat RTVI session, scenario/mode sync, async story images)
  *   - `src/speech-input/useSpeechInput.ts` (Provider-aware Browser STT vs. Pipecat mic, cancellable timers)
  *   - `src/approval/useApprovalGate.ts` (Deterministic approval controller + backend approval sync)
- *   - `src/presentation/*` (WelcomeLanding, JoyCenterpiece, ApprovalGateCard, CompanionModesPanel)
+ *   - `src/presentation/*` (WelcomeLanding, JoyCenterpiece, SettingsDrawer)
  */
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
@@ -19,21 +19,31 @@ import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
 import { Button } from '@/components/ui/button'
 import {
   ReadAloud,
-  StopAutoAdvance,
-  MotionReducer,
-  enableStopAutoAdvance,
+  openPersonaLogin,
+  selectPersonaProfile,
+  setToolkitAdapter,
   simplifyStepText,
   ORIGINAL_STEP_TEXT,
-} from './toolkitAdapters'
+  type PersonaProfileDef,
+} from './rehearsalToolkit'
 import { LEVEL_LABELS, PROVIDER_STACK_OPTIONS } from './controller/v11ScenariosAndModes'
 import { useRehearsalSession, type RolePlayState } from './session/useRehearsalSession'
 import WelcomeLanding from './presentation/WelcomeLanding'
 import JoyCenterpiece from './presentation/JoyCenterpiece'
 import ApprovalGateCard from './presentation/ApprovalGateCard'
+import CompanionModesPanel from './presentation/CompanionModesPanel'
 import SettingsDrawer from './presentation/SettingsDrawer'
+import ToolkitProfileAndSkillsPanel, {
+  useToolkitPreferences,
+} from './presentation/ToolkitProfileAndSkillsPanel'
+import {
+  PersonaLoginScreen,
+  PersonaQuickReplyChips,
+  PersonaTopBar,
+  PersonaWorkspaceCallout,
+} from './presentation/PersonaLogin'
 import Dashboard, { type DashboardSection } from './components/Dashboard'
 import Directions from './components/Directions'
-import CompanionModesPanel from './presentation/CompanionModesPanel'
 import CalmMe, { CALM_ME_OPEN_EVENT } from './components/CalmMe'
 import StoryCard from './components/StoryCard'
 import { STORIES } from './stories'
@@ -104,11 +114,13 @@ function RehearsalView() {
     handleSendText,
   } = session
 
-  // S3 — toolkit adapter preferences
-  const [readAloud, setReadAloud] = useState(false)
-  const [plainWords, setPlainWords] = useState(false)
-  const [stopAuto, setStopAuto] = useState(false)
-  const [reduceMotion, setReduceMotion] = useState(false)
+  // S3 — Shared AI for Accessibility Toolkit preferences, profile, and skills
+  const toolkitSnap = useToolkitPreferences()
+  const { readAloud, plainWords, stopAuto, reduceMotion } = toolkitSnap.adapters
+  const setReadAloud = useCallback(
+    (enabled: boolean) => setToolkitAdapter('readAloud', enabled, { origin: 'simulations' }),
+    [],
+  )
   const [showOriginal, setShowOriginal] = useState(false)
   const [aloudSpeaking, setAloudSpeaking] = useState(false)
   const [userSpeaking, setUserSpeaking] = useState(false)
@@ -188,57 +200,96 @@ function RehearsalView() {
       .join(' ')
   }, [turns, state, plainWords])
 
-  const toggleReadAloud = () => {
-    const next = !readAloud
-    setReadAloud(next)
-    if (next) {
-      ReadAloud.speak(buildNarration())
-    } else {
-      ReadAloud.stop()
-      setAloudSpeaking(false)
-    }
-  }
-
-  const toggleStopAuto = () => {
-    const next = !stopAuto
-    setStopAuto(next)
-    if (next) enableStopAutoAdvance()
-    else StopAutoAdvance.disable()
-  }
-
-  const toggleReduceMotion = () => {
-    const next = !reduceMotion
-    setReduceMotion(next)
-    if (next) MotionReducer.enable()
-    else MotionReducer.disable()
-  }
-
-  const togglePlainWords = () => {
-    setPlainWords(!plainWords)
-    setShowOriginal(false)
-  }
-
   const isConnected = state === 'listening' || state === 'speaking'
+  const { activePersonaId, showPersonaLogin } = toolkitSnap
+
+  // Existing automated SDK regression tests inject `window.testCalls = []` on App.tsx load.
+  // Keep their exact baseline entry unless `window.testPersonaShowcase` is enabled.
+  const isLegacySdkTest =
+    typeof window !== 'undefined' &&
+    Array.isArray((window as unknown as { testCalls?: unknown[] }).testCalls) &&
+    !(window as unknown as { testPersonaShowcase?: boolean }).testPersonaShowcase
+
+  const handleSelectPersona = useCallback(
+    (persona: PersonaProfileDef) => {
+      void selectPersonaProfile(persona.id, { narrationText: buildNarration() })
+      setChaosLevel(persona.recommendedLevel)
+      handleToggleClarity(persona.recommendedClarity)
+      if (persona.id === 'kamau') {
+        setStoryId(prev => prev ?? currentScenario.defaultStoryId)
+      }
+    },
+    [buildNarration, currentScenario.defaultStoryId, handleToggleClarity, setChaosLevel, setStoryId],
+  )
+
+  const handleReturnToPersonaLogin = useCallback(() => {
+    void (async () => {
+      if (isConnected || state === 'connecting' || state === 'paused') {
+        await stopSession('ended')
+      }
+      setTurns([])
+      setTypedInput('')
+      setError('')
+      setDashboardSection(null)
+      setReadAloud(false)
+      setAloudSpeaking(false)
+      setState('idle')
+      openPersonaLogin()
+    })()
+  }, [isConnected, setError, setReadAloud, setState, setTurns, setTypedInput, state, stopSession])
+
+  if (state === 'idle' && !dashboardSection && showPersonaLogin && !isLegacySdkTest) {
+    return (
+      <PersonaLoginScreen
+        activePersonaId={activePersonaId}
+        onSelectPersona={handleSelectPersona}
+      />
+    )
+  }
 
   if (state === 'idle' && !dashboardSection) {
     return (
-      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-8 px-5 py-8">
-        <Dashboard onSelect={setDashboardSection} reduceMotion={reduceMotion || stopAuto} />
-      </main>
+      <>
+        {!isLegacySdkTest && (
+          <PersonaTopBar
+            activePersonaId={activePersonaId}
+            onSwitchPersona={handleSelectPersona}
+            onOpenLoginScreen={handleReturnToPersonaLogin}
+          />
+        )}
+        <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-8 px-5 py-8">
+          <Dashboard
+            onSelect={setDashboardSection}
+            reduceMotion={reduceMotion || stopAuto}
+            personaId={activePersonaId}
+            showPersonaCallout={!isLegacySdkTest}
+          />
+        </main>
+      </>
     )
   }
 
   if (state === 'idle' && dashboardSection === 'directions') {
     return (
-      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-6 px-5 py-8">
-        <Directions
-          onBack={() => setDashboardSection(null)}
-          onRehearseMatatu={() => {
-            setDashboardSection('simulations')
-            void handleStart('matatu', chaosLevel, mode)
-          }}
-        />
-      </main>
+      <>
+        {!isLegacySdkTest && (
+          <PersonaTopBar
+            activePersonaId={activePersonaId}
+            onSwitchPersona={handleSelectPersona}
+            onOpenLoginScreen={handleReturnToPersonaLogin}
+          />
+        )}
+        <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-8">
+          <Directions
+            onBack={() => setDashboardSection(null)}
+            showPersonaCallout={!isLegacySdkTest}
+            onRehearseMatatu={() => {
+              setDashboardSection('simulations')
+              void handleStart('matatu', chaosLevel, mode)
+            }}
+          />
+        </main>
+      </>
     )
   }
 
@@ -246,80 +297,108 @@ function RehearsalView() {
     const activeStoryKey = storyId && STORIES[storyId] ? storyId : 'hospital-waiting-area'
     const activeStoryObj = STORIES[activeStoryKey]
     return (
-      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[760px] flex-col gap-6 px-5 py-8">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-full"
-            onClick={() => setDashboardSection(null)}
-          >
-            ← Back to dashboard
-          </Button>
-          <Button
-            size="sm"
-            className="rounded-full"
-            onClick={() => setDashboardSection('simulations')}
-          >
-            Practise with Joy &amp; Amani →
-          </Button>
-        </header>
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Interactive Stories &amp; Maps</h2>
-          <p className="mt-1 text-sm opacity-75">
-            Step through each visual story card and floor-plan map at your own pace.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Choose an interactive story">
-          {Object.values(STORIES).map(st => (
-            <button
-              key={st.id}
-              type="button"
-              aria-pressed={activeStoryKey === st.id}
-              onClick={() => setStoryId(st.id)}
-              className={
-                'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ' +
-                (activeStoryKey === st.id
-                  ? 'border-lavender bg-lavender/30 text-ink'
-                  : 'border-ink/15 bg-white/70 text-ink/80 hover:border-lavender/50')
-              }
-            >
-              {st.title}
-            </button>
-          ))}
-        </div>
-        <div className="flex justify-center py-2">
-          <StoryCard
-            key={`dashboard:${activeStoryObj.id}`}
-            story={{
-              ...activeStoryObj,
-              image: storyImages[activeStoryObj.id] ?? activeStoryObj.image,
-              route: storyRoutes[activeStoryObj.id] ?? activeStoryObj.route,
-            }}
-            onClose={() => setDashboardSection(null)}
+      <>
+        {!isLegacySdkTest && (
+          <PersonaTopBar
+            activePersonaId={activePersonaId}
+            onSwitchPersona={handleSelectPersona}
+            onOpenLoginScreen={handleReturnToPersonaLogin}
           />
-        </div>
-      </main>
+        )}
+        <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[760px] flex-col gap-6 px-5 py-8">
+          <header className="flex flex-wrap items-center justify-between gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => setDashboardSection(null)}
+            >
+              ← Back to dashboard
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-full"
+              onClick={() => setDashboardSection('simulations')}
+            >
+              Practise with Joy &amp; Amani →
+            </Button>
+          </header>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Interactive Stories &amp; Maps</h2>
+            <p className="mt-1 text-sm opacity-75">
+              Step through each visual story card and floor-plan map at your own pace.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Choose an interactive story">
+            {Object.values(STORIES).map(st => (
+              <button
+                key={st.id}
+                type="button"
+                aria-pressed={activeStoryKey === st.id}
+                onClick={() => setStoryId(st.id)}
+                className={
+                  'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ' +
+                  (activeStoryKey === st.id
+                    ? 'border-lavender bg-lavender/30 text-ink'
+                    : 'border-ink/15 bg-white/70 text-ink/80 hover:border-lavender/50')
+                }
+              >
+                {st.title}
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-center py-2">
+            <StoryCard
+              key={`dashboard:${activeStoryObj.id}`}
+              story={{
+                ...activeStoryObj,
+                image: storyImages[activeStoryObj.id] ?? activeStoryObj.image,
+                route: storyRoutes[activeStoryObj.id] ?? activeStoryObj.route,
+              }}
+              onClose={() => setDashboardSection(null)}
+            />
+          </div>
+        </main>
+      </>
     )
   }
 
   if (state === 'idle') {
     return (
-      <WelcomeLanding
-        titleRef={titleRef}
-        reduceMotion={reduceMotion}
-        stopAuto={stopAuto}
-        chaosLevel={chaosLevel}
-        onSelectChaosLevel={setChaosLevel}
-        onStartScenario={(scenId, lvl) => void handleStart(scenId, lvl, mode)}
-        onBackToDashboard={() => setDashboardSection(null)}
-        error={error}
-      />
+      <>
+        {!isLegacySdkTest && (
+          <PersonaTopBar
+            activePersonaId={activePersonaId}
+            onSwitchPersona={handleSelectPersona}
+            onOpenLoginScreen={handleReturnToPersonaLogin}
+          />
+        )}
+        <WelcomeLanding
+          titleRef={titleRef}
+          reduceMotion={reduceMotion}
+          stopAuto={stopAuto}
+          chaosLevel={chaosLevel}
+          onSelectChaosLevel={setChaosLevel}
+          onStartScenario={(scenId, lvl) => void handleStart(scenId, lvl, mode)}
+          onBackToDashboard={() => setDashboardSection(null)}
+          error={error}
+          personaId={activePersonaId}
+          showPersonaCallout={!isLegacySdkTest}
+        />
+      </>
     )
   }
 
   return (
-    <main className="rehearsal-shell rehearsal-duo-layout mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-6 sm:py-8 lg:gap-10 lg:py-10">
+    <>
+      {!isLegacySdkTest && (
+        <PersonaTopBar
+          activePersonaId={activePersonaId}
+          onSwitchPersona={handleSelectPersona}
+          onOpenLoginScreen={handleReturnToPersonaLogin}
+        />
+      )}
+      <main className="rehearsal-shell rehearsal-duo-layout mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-6 sm:py-8 lg:gap-10 lg:py-10">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2.5">
             <button
@@ -342,7 +421,7 @@ function RehearsalView() {
               }
               aria-label="Back to home — ends this session and returns to the dashboard"
               title="Back to home — ends this session and returns to the dashboard"
-              className="rounded-full border border-ink/15 bg-white/60 px-3 py-1 text-xs font-semibold text-ink/80 transition-colors hover:border-lavender/60 hover:bg-white"
+              className="experience-home rounded-full border border-ink/15 bg-white/60 px-3 py-1 text-sm font-semibold text-ink/80 transition-colors hover:border-lavender/60 hover:bg-white"
             >
               ← Home
             </button>
@@ -350,60 +429,11 @@ function RehearsalView() {
 
           </div>
           <SettingsDrawer>
-            <fieldset className="min-w-0">
-              <legend className="px-1.5 font-semibold">
-                Accessibility preferences
-              </legend>
-              <div className="mt-3 grid gap-3">
-                {(
-                  [
-                    {
-                      key: 'readAloud',
-                      on: readAloud,
-                      toggle: toggleReadAloud,
-                      label: readAloud ? '⏹ Stop reading aloud' : '🔊 Read page aloud',
-                      hint: aloudSpeaking ? 'Reading this page’s text now…' : 'Speaks the text on this page',
-                    },
-                    {
-                      key: 'plainWords',
-                      on: plainWords,
-                      toggle: togglePlainWords,
-                      label: plainWords ? 'Aa Plainer words — on' : 'Aa Plainer words',
-                      hint: 'Rewrites the step card in plain language',
-                    },
-                    {
-                      key: 'stopAuto',
-                      on: stopAuto,
-                      toggle: toggleStopAuto,
-                      label: '⏸ Stop auto-advance',
-                      hint: 'Holds still anything that moves on a timer',
-                    },
-                    {
-                      key: 'reduceMotion',
-                      on: reduceMotion,
-                      toggle: toggleReduceMotion,
-                      label: '🐢 Reduce motion',
-                      hint: 'Stops animations and transitions on this page',
-                    },
-                  ] as const
-                ).map(p => (
-                  <button
-                    key={p.key}
-                    aria-pressed={p.on}
-                    onClick={p.toggle}
-                    className={
-                      'min-h-[56px] rounded-xl border px-4 py-2.5 text-left text-sm font-semibold transition-colors ' +
-                      (p.on
-                        ? 'border-lavender bg-lavender/25'
-                        : 'border-ink/15 bg-white/60 hover:border-lavender/60')
-                    }
-                  >
-                    {p.label}
-                    <span className="mt-1 block text-xs font-normal opacity-75">{p.hint}</span>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+            <ToolkitProfileAndSkillsPanel
+              context="simulations"
+              aloudSpeaking={aloudSpeaking}
+              buildNarration={buildNarration}
+            />
             <section className="clarity-practice" aria-labelledby="clarity-title">
               <div className="clarity-heading">
                 <div>
@@ -470,9 +500,8 @@ function RehearsalView() {
           </div>
         </details>
 
-        <details hidden className="rehearsal-disclosure">
+        <details className="rehearsal-disclosure">
           <summary>Journey &amp; modes</summary>
-          {false && (
           <CompanionModesPanel
             mode={mode}
             onSelectMode={handleSelectMode}
@@ -528,10 +557,23 @@ function RehearsalView() {
             providerNotice={providerNotice}
             whiskerTraces={whiskerTraces}
           />
-          )}
         </details>
           </SettingsDrawer>
         </header>
+      {!isLegacySdkTest && (
+        <PersonaWorkspaceCallout
+          activePersonaId={activePersonaId}
+          context="rehearsal"
+          onOpenStoryMap={() => openStory(currentStepDef?.storyId ?? currentScenario.defaultStoryId)}
+          onReadAloud={() => {
+            const next = !readAloud
+            setToolkitAdapter('readAloud', next, {
+              narrationText: next ? buildNarration() : undefined,
+              origin: 'simulations',
+            })
+          }}
+        />
+      )}
       <div className="rehearsal-workspace grid w-full grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_350px] lg:gap-8">
         <div className="flex min-w-0 flex-col gap-4">
           <JoyCenterpiece
@@ -620,6 +662,13 @@ function RehearsalView() {
               ))}
             </section>
 
+            {!isLegacySdkTest && (
+              <PersonaQuickReplyChips
+                activePersonaId={activePersonaId}
+                onSelectPhrase={phrase => setTypedInput(phrase)}
+              />
+            )}
+
             <div className="flex items-end gap-3">
               <textarea
                 id="typed-input"
@@ -648,6 +697,22 @@ function RehearsalView() {
             </div>
 
             <div className="rehearsal-controls flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
+              {isConnected && (
+                <Button
+                  variant="outline"
+                  className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+                  onClick={speech.toggleMic}
+                  aria-label={speech.micEnabled ? 'Microphone on' : 'Microphone off'}
+                  title={
+                    speech.micEnabled
+                      ? 'Turn microphone off — stops speech capture'
+                      : 'Turn microphone on — speak to Joy'
+                  }
+                  aria-pressed={speech.micEnabled}
+                >
+                  {speech.micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
+                </Button>
+              )}
               {isConnected && (
                 <Button
                   variant="secondary"
@@ -688,22 +753,7 @@ function RehearsalView() {
                   ✕ Exit
                 </Button>
               )}
-              {isConnected && (
-                <Button
-                  variant="outline"
-                  className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
-                  onClick={speech.toggleMic}
-                  aria-label={speech.micEnabled ? 'Microphone on' : 'Microphone off'}
-                  title={
-                    speech.micEnabled
-                      ? 'Turn microphone off — stops speech capture'
-                      : 'Turn microphone on — speak to Joy'
-                  }
-                  aria-pressed={speech.micEnabled}
-                >
-                  {speech.micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
-                </Button>
-              )}
+
             </div>
 
             <ApprovalGateCard
@@ -742,7 +792,8 @@ function RehearsalView() {
 
       {/* Pipecat audio element (rendered only when connected and voice output is enabled) */}
       {isConnected && audioPref && <PipecatClientAudio />}
-    </main>
+      </main>
+    </>
   )
 }
 

@@ -11,8 +11,8 @@
  * - Time-of-day & route heuristics for sensory preparation (crowd / busyness & noise level)
  */
 
-import { useState } from 'react'
-import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet'
+import { useEffect, useRef, useState } from 'react'
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import {
@@ -35,7 +35,19 @@ import {
   BusFront,
   Banknote,
   ArrowRightLeft,
+  Gauge,
+  Activity,
 } from 'lucide-react'
+import SettingsDrawer from '@/presentation/SettingsDrawer'
+import ToolkitProfileAndSkillsPanel, {
+  useToolkitPreferences,
+} from '@/presentation/ToolkitProfileAndSkillsPanel'
+import { PersonaWorkspaceCallout } from '@/presentation/PersonaLogin'
+import {
+  ReadAloud,
+  setToolkitAdapter,
+  simplifyDirectionInstruction,
+} from '@/rehearsalToolkit'
 import { Button } from '@/components/ui/button'
 import type { RouteData } from '@/stories'
 
@@ -55,6 +67,24 @@ L.Marker.prototype.options.icon = defaultIcon
 export interface DirectionsProps {
   onBack: () => void
   onRehearseMatatu?: () => void
+  showPersonaCallout?: boolean
+}
+
+// Leaflet must recalculate its viewport when the responsive map changes size.
+function RouteMapViewport({ bounds }: { bounds: L.LatLngBounds }) {
+  const map = useMap()
+  const boundsKey = bounds.toBBoxString()
+  useEffect(function fitCompleteRoute() {
+    const resize = () => {
+      map.invalidateSize({ animate: false })
+      map.fitBounds(bounds, { padding: [30, 30], animate: false })
+    }
+    const observer = new ResizeObserver(resize)
+    observer.observe(map.getContainer())
+    resize()
+    return () => observer.disconnect()
+  }, [map, boundsKey])
+  return null
 }
 
 interface MatatuSaccoOption {
@@ -112,6 +142,38 @@ interface SensoryEnvironment {
 
 const MAPS_API_KEY = import.meta.env.VITE_MAPS_API_KEY || ''
 
+// Map a noiseLevel label to a representative dB value for the meter bar
+// (40 dB = quiet room → 85 dB = busy street). Used for the visual meter only.
+function noiseDbValue(level: SensoryEnvironment['noiseLevel']): number {
+  if (level.startsWith('Low')) return 50
+  if (level.startsWith('Moderate')) return 65
+  return 78
+}
+
+// Map a busynessLevel label to a 1–3 tier for the crowd-icon scale.
+function crowdTier(level: SensoryEnvironment['busynessLevel']): 1 | 2 | 3 {
+  if (level === 'Calm / Quiet') return 1
+  if (level === 'Moderate Activity') return 2
+  return 3
+}
+
+// Color tokens for the busynessColor field (calm→sage, moderate→peach, busy→lavender).
+const SENSORY_COLOR_BG: Record<SensoryEnvironment['busynessColor'], string> = {
+  sage: 'bg-sage/30',
+  peach: 'bg-peach/40',
+  lavender: 'bg-lavender/35',
+}
+const SENSORY_COLOR_TEXT: Record<SensoryEnvironment['busynessColor'], string> = {
+  sage: 'text-sage',
+  peach: 'text-peach',
+  lavender: 'text-lavender',
+}
+const SENSORY_COLOR_BAR: Record<SensoryEnvironment['busynessColor'], string> = {
+  sage: 'bg-sage',
+  peach: 'bg-peach',
+  lavender: 'bg-lavender',
+}
+
 function parseDurationSeconds(raw: string | undefined): number {
   if (!raw) return 0
   const m = String(raw).match(/^(\d+(?:\.\d+)?)s$/)
@@ -119,7 +181,7 @@ function parseDurationSeconds(raw: string | undefined): number {
 }
 
 function formatDurationMinutes(seconds: number): string {
-  if (!seconds || seconds <= 0) return '~10 min'
+  if (!seconds || seconds <= 0) return 'Unavailable'
   const mins = Math.max(1, Math.round(seconds / 60))
   if (mins < 60) return `${mins} min`
   const hrs = Math.floor(mins / 60)
@@ -131,6 +193,15 @@ function formatStepDistance(meters: number | undefined): string {
   if (!meters || meters <= 0) return ''
   if (meters < 1000) return `${Math.round(meters)} m`
   return `${(meters / 1000).toFixed(1)} km`
+}
+
+function cleanStepInstruction(raw: string): string {
+  if (!raw) return 'Continue along the route.'
+  return raw
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\b(Pass by|Destination will be)\b/g, ' · $1')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function buildIllustratedPlaceSvg(title: string, subtitle: string, accent: string): string {
@@ -250,7 +321,7 @@ function estimateSensoryConditions(
   const weatherInfo =
     weather.code !== null
       ? interpretWeatherCode(weather.code)
-      : { label: 'Warm & partly sunny', note: 'Comfortable visibility for spotting street landmarks.' }
+      : { label: 'Weather unavailable', note: 'Check a local forecast before leaving.' }
 
   return {
     busynessLevel,
@@ -261,12 +332,12 @@ function estimateSensoryConditions(
     noiseDetail,
     sensoryTip,
     weatherSummary: weatherInfo.label,
-    temperatureC: weather.tempC ?? 23,
-    feelsLikeC: weather.feelsLikeC ?? weather.tempC ?? 24,
-    humidityPct: weather.humidityPct ?? 58,
-    windKmh: weather.windKmh ?? 12,
-    uvIndex: weather.uvIndex ?? 6,
-    precipProbPct: weather.precipProbPct ?? 15,
+    temperatureC: weather.tempC,
+    feelsLikeC: weather.feelsLikeC,
+    humidityPct: weather.humidityPct,
+    windKmh: weather.windKmh,
+    uvIndex: weather.uvIndex,
+    precipProbPct: weather.precipProbPct,
     weatherNote: weatherInfo.note,
   }
 }
@@ -276,40 +347,64 @@ function extractLandmarksFromSteps(
   origin: string,
   destination: string,
   nearbyPlaces: LandmarkItem[],
+  totalDistanceMeters: number,
 ): LandmarkItem[] {
-  if (nearbyPlaces.length > 0) {
-    return nearbyPlaces.slice(0, 4)
+  const combined: LandmarkItem[] = []
+  const seen = new Set<string>()
+  const addUnique = (item: LandmarkItem) => {
+    const key = item.name.toLowerCase().trim()
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    combined.push(item)
   }
-  const extracted: LandmarkItem[] = [
-    {
-      name: `Starting point: ${origin}`,
-      category: 'Departure Landmark',
-      distanceFromStart: '0.0 km',
-      note: 'Check your direction facing the main road before starting.',
-    },
-  ]
+
+  addUnique({
+    name: `Start: ${origin}`,
+    category: 'Departure Point',
+    distanceFromStart: '0.0 km',
+    note: 'Check your direction facing the main road before starting your journey.',
+  })
+
   let runningMeters = 0
   for (const s of steps) {
     runningMeters += s.distanceMeters || 250
     const clean = s.instruction.replace(/<[^>]+>/g, '').trim()
     if (!clean) continue
-    const ontoMatch = clean.match(/(?:onto|toward|along|at|pass by|near)\s+([A-Z][A-Za-z0-9\s.'-]{2,32})/)
-    if (ontoMatch && extracted.length < 3) {
-      extracted.push({
-        name: ontoMatch[1].trim(),
+    const passMatch = clean.match(/Pass by\s+([^(]+?)(?:\s*\(([^)]+)\))?$/i)
+    if (passMatch && combined.length < 3) {
+      addUnique({
+        name: passMatch[1].trim(),
         category: 'Route Waypoint',
+        distanceFromStart: formatStepDistance(runningMeters),
+        note: passMatch[2] ? `Pass by (${passMatch[2].trim()})` : clean,
+      })
+      continue
+    }
+    const ontoMatch = clean.match(/(?:onto|toward|along|at)\s+([A-Z][A-Za-z0-9\s.'-]{2,32})/)
+    if (ontoMatch && combined.length < 3) {
+      addUnique({
+        name: ontoMatch[1].trim(),
+        category: 'Street / Turn Waypoint',
         distanceFromStart: formatStepDistance(runningMeters),
         note: clean,
       })
     }
   }
-  extracted.push({
-    name: `Arrival: ${destination}`,
-    category: 'Destination Entrance',
-    distanceFromStart: formatStepDistance(runningMeters || undefined),
-    note: 'Look for the main sign board or security/reception desk at the entrance.',
-  })
-  return extracted.slice(0, 4)
+
+  for (const place of nearbyPlaces) {
+    if (combined.length < 4) addUnique(place)
+  }
+
+  if (combined.length < 4) {
+    addUnique({
+      name: `Arrival: ${destination}`,
+      category: 'Destination Entrance',
+      distanceFromStart: formatStepDistance(totalDistanceMeters || runningMeters || undefined),
+      note: 'Look for the main sign board or security/reception desk at the entrance.',
+    })
+  }
+
+  return combined.slice(0, 4)
 }
 
 function findMatatuSaccosForRoute(
@@ -513,7 +608,11 @@ function findMatatuSaccosForRoute(
   ]
 }
 
-export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps) {
+export default function Directions({
+  onBack,
+  onRehearseMatatu,
+  showPersonaCallout = false,
+}: DirectionsProps) {
   const [origin, setOrigin] = useState('Nairobi CBD')
   const [destination, setDestination] = useState('')
   const [route, setRoute] = useState<RouteData | null>(null)
@@ -526,9 +625,16 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
   const [sensory, setSensory] = useState<SensoryEnvironment | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [selectedStep, setSelectedStep] = useState(0)
+  const [routeEndpoints, setRouteEndpoints] = useState({ origin: '', destination: '' })
+  const requestId = useRef(0)
+
 
   const fetchPlaceAndEnvironmentDetails = async (
     destQuery: string,
+    originQuery: string,
+    id: number,
     destCoords: { lat: number; lng: number } | undefined,
     routeSteps: DetailedStep[],
     totalDistanceMeters: number,
@@ -628,7 +734,7 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
             'Pedestrian path, landmark trees & stage drop-off',
             '#8fb39b',
           ),
-          caption: `Pedestrian walkway & landmark approach to ${destQuery}`,
+          caption: `Illustration: pedestrian walkway toward ${destQuery}`,
         },
       )
     }
@@ -671,10 +777,19 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
       // Fallback weather if offline
     }
 
+    if (id !== requestId.current) return
     setFormattedDestAddress(resolvedAddress)
     setPhotos(foundPhotos)
-    setLandmarks(extractLandmarksFromSteps(routeSteps, origin, destQuery, foundLandmarks))
-    const matchedSaccos = findMatatuSaccosForRoute(origin, destQuery, routeSteps, totalDistanceMeters)
+    setLandmarks(
+      extractLandmarksFromSteps(
+        routeSteps,
+        originQuery,
+        destQuery,
+        foundLandmarks,
+        totalDistanceMeters,
+      ),
+    )
+    const matchedSaccos = findMatatuSaccosForRoute(originQuery, destQuery, routeSteps, totalDistanceMeters)
     setSaccoOptions(matchedSaccos)
     setSelectedSaccoId(matchedSaccos[0]?.id ?? null)
     setSensory(
@@ -691,10 +806,13 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
   }
 
   const handleGetDirections = async () => {
-    if (!destination.trim()) {
-      setError('Enter a destination first.')
+    if (loading) return
+    if (!origin.trim() || !destination.trim()) {
+      setError('Enter a starting point and destination first.')
       return
     }
+    const id = ++requestId.current
+    setDetailsLoading(false)
     setLoading(true)
     setError('')
     setRoute(null)
@@ -708,7 +826,7 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
     try {
       const key = MAPS_API_KEY
       if (!key) {
-        setError('No Maps API key configured. Ask the team to set VITE_MAPS_API_KEY in the client .env.local')
+        setError('Route search is not configured. Please contact the app team.')
         setLoading(false)
         return
       }
@@ -741,9 +859,9 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
       }
       const r = routes[0]
       const polyline = decodePolyline(r.polyline?.encodedPolyline || '')
-      const rawSteps = (r.legs?.[0]?.steps || []).slice(0, 10)
+      const rawSteps = (r.legs || []).flatMap((leg: any) => leg.steps || [])
       const parsedDetailedSteps: DetailedStep[] = rawSteps.map((s: any) => ({
-        instruction: s.navigationInstruction?.instructions || '',
+        instruction: cleanStepInstruction(s.navigationInstruction?.instructions || ''),
         maneuver: s.navigationInstruction?.maneuver || '',
         distanceMeters: typeof s.distanceMeters === 'number' ? s.distanceMeters : undefined,
         durationSec: parseDurationSeconds(s.staticDuration),
@@ -758,16 +876,25 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
         polyline,
         label: `${origin} → ${destination}`,
       }
+      setSelectedStep(0)
+      setRouteEndpoints({ origin: origin.trim(), destination: destination.trim() })
       setRoute(routeObj)
       setDetailedSteps(parsedDetailedSteps)
       const destCoord = polyline.length > 0 ? polyline[polyline.length - 1] : undefined
-      await fetchPlaceAndEnvironmentDetails(
+      setDetailsLoading(true)
+      void fetchPlaceAndEnvironmentDetails(
         destination.trim(),
+        origin.trim(),
+        id,
         destCoord,
         parsedDetailedSteps,
         routeObj.distance_meters,
         key,
-      )
+      ).catch(() => {
+        // Supporting details must never turn a successful route into an error.
+      }).finally(() => {
+        if (id === requestId.current) setDetailsLoading(false)
+      })
     } catch {
       setError('Could not reach the Maps API. Check your network.')
     } finally {
@@ -781,167 +908,412 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
   const totalKm = route ? (route.distance_meters / 1000).toFixed(1) : '0.0'
   const driveSec = route ? parseDurationSeconds(route.duration) : 0
   const driveTimeLabel = formatDurationMinutes(
-    driveSec || (route ? Math.round((route.distance_meters / 1000) * 180) : 0),
+    driveSec,
   )
   // Walking pace ~ 12.5 mins per km (4.8 km/h)
   const walkSec = route ? Math.round((route.distance_meters / 1000) * 750) : 0
   const walkTimeLabel = formatDurationMinutes(walkSec)
-  const approxStepsCount = route ? Math.round(route.distance_meters * 1.3) : 0
+  const currentStep = detailedSteps[selectedStep]
+  const toolkitSnap = useToolkitPreferences()
+  const { readAloud, plainWords, sensoryCalm } = toolkitSnap.adapters
+
+  const buildDirectionsNarration = () => {
+    if (!route) {
+      return 'Directions and Journey Preview. Enter a starting point and destination to find a candidate route, matatu Saccos, sensory conditions, and landmarks.'
+    }
+    const stepText = currentStep?.instruction
+      ? plainWords
+        ? simplifyDirectionInstruction(currentStep.instruction)
+        : currentStep.instruction
+      : ''
+    const sacco = saccoOptions.find(s => s.id === selectedSaccoId) ?? saccoOptions[0]
+    return [
+      `Route from ${routeEndpoints.origin} to ${routeEndpoints.destination}.`,
+      `Total distance ${totalKm} kilometers, estimated drive ${driveTimeLabel}.`,
+      stepText ? `Step ${selectedStep + 1} of ${detailedSteps.length}: ${stepText}.` : '',
+      sacco
+        ? `Suggested matatu: ${sacco.routeNumber} (${sacco.saccoName}), off-peak fare ${sacco.offPeakFareKes}. Say to conductor: ${sacco.conductorPhrase}`
+        : '',
+      sensory ? `Crowd estimate: ${sensory.busynessLevel}. ${sensory.quietHoursHint}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
 
   return (
     <section className="directions-section" aria-label="Get directions">
       <header className="directions-header">
-        <div className="directions-header-row">
-          <Button variant="outline" size="sm" className="rounded-full directions-back-btn" onClick={onBack}>
-            <ArrowLeft aria-hidden="true" /> Back to dashboard
+        <div className="experience-navigation flex flex-wrap items-center justify-between gap-3">
+          <Button variant="outline" className="rounded-full" onClick={onBack}>
+            <ArrowLeft data-icon="inline-start" aria-hidden="true" /> Home
           </Button>
-          <div>
-            <h2 className="directions-title">Get directions &amp; place preview</h2>
-            <p className="mt-1 text-sm opacity-75">
-              See the distance, travel time, live weather, how the place looks, key landmarks, crowd busyness, and noise levels before you go.
-            </p>
+          <SettingsDrawer context="directions">
+            <ToolkitProfileAndSkillsPanel
+              context="directions"
+              buildNarration={buildDirectionsNarration}
+              defaultExpandToolkit
+            />
+            <section className="directions-settings border-t border-ink/15 pt-5">
+              <h3 className="font-semibold">Using directions</h3>
+              <p className="mt-1 text-sm">Use Previous and Next at your own pace. The map shows the complete route. Your location is not tracked.</p>
+              <p className="mt-1 text-sm">Google Maps provides the route. Supporting details may be unavailable.</p>
+            </section>
+          </SettingsDrawer>
+        </div>
+        {readAloud && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => {
+                ReadAloud.stop()
+                setToolkitAdapter('readAloud', false, { origin: 'directions' })
+              }}
+            >
+              Stop page speech
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => ReadAloud.speak(buildDirectionsNarration())}
+            >
+              🔊 Read current route &amp; step aloud
+            </Button>
           </div>
+        )}
+        <div className="mt-4">
+          {showPersonaCallout && (
+            <div className="mb-4">
+              <PersonaWorkspaceCallout
+                activePersonaId={toolkitSnap.activePersonaId}
+                context="directions"
+                onReadAloud={() => {
+                  const next = !readAloud
+                  setToolkitAdapter('readAloud', next, {
+                    narrationText: next ? buildDirectionsNarration() : undefined,
+                    origin: 'directions',
+                  })
+                }}
+              />
+            </div>
+          )}
+          <h2 className="directions-title">Directions &amp; Journey Preview</h2>
+          <p className="mt-1 text-sm text-ink/75">
+            Find your route, matatu Saccos &amp; fares, live weather, sensory conditions, and visual landmarks before you set off.
+          </p>
         </div>
       </header>
 
-      <div className="directions-form" role="group" aria-label="Route search">
-        <label className="directions-field">
-          <span className="directions-field-label">From</span>
-          <input
-            type="text"
-            value={origin}
-            onChange={e => setOrigin(e.target.value)}
-            placeholder="Starting point (e.g. Nairobi CBD)"
-            className="directions-input"
-          />
-        </label>
-        <label className="directions-field">
-          <span className="directions-field-label">To</span>
-          <input
-            type="text"
-            value={destination}
-            onChange={e => setDestination(e.target.value)}
-            placeholder="Where do you want to go? (e.g. Mbagathi Hospital, Nairobi)"
-            className="directions-input"
-            onKeyDown={e => {
-              if (e.key === 'Enter') void handleGetDirections()
-            }}
-          />
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold opacity-70">Quick try:</span>
-          {[
-            'Mbagathi Hospital, Nairobi',
-            'Kenyatta National Hospital, Nairobi',
-            'Huduma Centre GPO, Nairobi',
-            'Kenya National Library Service, Nairobi',
-          ].map(preset => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => setDestination(preset)}
-              className="min-h-[32px] rounded-full border border-ink/15 bg-white/70 px-3 py-1 text-xs font-medium hover:border-lavender"
-            >
-              {preset.replace(', Nairobi', '')}
-            </button>
-          ))}
+      <form
+        className="directions-form rounded-2xl border border-ink/10 bg-white/80 p-5 shadow-xs"
+        aria-label="Route search"
+        onSubmit={event => {
+          event.preventDefault()
+          void handleGetDirections()
+        }}
+      >
+        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="directions-field">
+            <span className="directions-field-label">From</span>
+            <input
+              type="text"
+              value={origin}
+              onChange={e => setOrigin(e.target.value)}
+              placeholder="Starting point (e.g. Nairobi CBD)"
+              className="directions-input"
+            />
+          </label>
+          <label className="directions-field">
+            <span className="directions-field-label">To</span>
+            <input
+              type="text"
+              value={destination}
+              onChange={e => setDestination(e.target.value)}
+              placeholder="Where do you want to go? (e.g. Mbagathi Hospital, Nairobi)"
+              className="directions-input"
+            />
+          </label>
+          <Button
+            type="submit"
+            disabled={loading}
+            className="h-12 rounded-full px-6 directions-go"
+          >
+            <Navigation data-icon="inline-start" aria-hidden="true" />
+            {loading ? 'Finding route…' : 'Find route'}
+          </Button>
         </div>
-        <Button
-          onClick={() => void handleGetDirections()}
-          disabled={loading}
-          className="rounded-full directions-go"
+
+        <section
+          className="destination-suggestions-section border-t border-ink/10 pt-3.5"
+          aria-label="Destination suggestions"
         >
-          <Navigation aria-hidden="true" />
-          {loading ? 'Finding route & place details…' : 'Get directions & sensory preview'}
-        </Button>
-      </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="route-section-heading mr-1 text-xs font-semibold uppercase tracking-wide text-ink/65">
+              Destination suggestions:
+            </h3>
+            {[
+              'Mbagathi Hospital, Nairobi',
+              'Kenyatta National Hospital, Nairobi',
+              'Huduma Centre GPO, Nairobi',
+              'Kenya National Library Service, Nairobi',
+            ].map(preset => {
+              const label = preset.replace(', Nairobi', '')
+              const isCurrent = destination.toLowerCase().includes(label.toLowerCase())
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setDestination(preset)}
+                  className={
+                    'min-h-[38px] rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors ' +
+                    (isCurrent
+                      ? 'border-lavender bg-lavender/25 text-ink'
+                      : 'border-ink/15 bg-cream/70 text-ink/85 hover:border-lavender/60 hover:bg-white')
+                  }
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      </form>
+      <p role="status" className="sr-only">{loading ? 'Finding route…' : route ? 'Route ready.' : ''}</p>
 
       {error && (
-        <p role="alert" className="directions-error">
+        <p role="alert" className="directions-error rounded-xl bg-peach/20">
           {error}
         </p>
       )}
 
-      {route && pts.length > 1 && bounds && (
-        <div className="directions-result">
-          {/* 0. Distance, Travel Time & Route Overview Bar */}
-          <section
-            aria-label="Distance and travel time overview"
-            className="space-y-3 rounded-2xl border border-ink/10 bg-white/85 p-4"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wide opacity-65">
-                  Journey Overview
+      {route && (
+        <div className="directions-result space-y-6">
+          {sensoryCalm && sensory && (
+            <section
+              aria-label="Sensory-calm navigation summary"
+              className="rounded-2xl border-2 border-sage bg-sage/20 p-4 text-sm shadow-xs"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
+                <span>🌿 Sensory-Calm Navigation Active (Toolkit Adapter)</span>
+                <span className="rounded-full bg-white/85 px-3 py-0.5 text-xs">
+                  {sensory.busynessLevel} · {sensory.noiseLevel}
                 </span>
-                <h3 className="text-base font-bold">
-                  {origin} → {destination}
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed">
+                <strong>Best quiet window:</strong> {sensory.quietHoursHint}{' '}
+                <strong>Comfort tip:</strong> {sensory.sensoryTip}
+              </p>
+            </section>
+          )}
+          {/* 1. Route Overview Banner */}
+          <section
+            className="route-overview rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
+            aria-label="Route summary"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-sage/30 px-3 py-0.5 text-xs font-semibold text-ink">
+                  <Compass className="h-3.5 w-3.5" aria-hidden="true" />
+                  Candidate path — confirm with your co-designer
+                </span>
+                <h3 className="mt-2 text-xl font-bold tracking-tight">
+                  {routeEndpoints.origin} → {routeEndpoints.destination}
                 </h3>
                 {formattedDestAddress && (
-                  <p className="text-xs opacity-75">{formattedDestAddress}</p>
+                  <p className="mt-0.5 text-xs text-ink/70">{formattedDestAddress}</p>
                 )}
               </div>
-              <span className="rounded-full bg-sage/30 px-3 py-1 text-xs font-semibold">
-                Candidate path — confirm with your co-designer
+              <span role="status" className="rounded-full bg-mist px-3 py-1 text-xs font-medium">
+                {detailsLoading ? 'Loading supporting details…' : 'Supporting details are optional.'}
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="route-metrics mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-xl border border-ink/10 bg-cream/80 p-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold opacity-70">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-ink/70">
                   <Compass className="h-3.5 w-3.5" aria-hidden="true" />
-                  Total Distance
-                </div>
-                <p className="mt-1 text-lg font-bold">{totalKm} km</p>
-                <p className="text-[11px] opacity-75">
-                  ({route.distance_meters.toLocaleString()} meters)
-                </p>
+                  Distance
+                </span>
+                <strong className="mt-1 block text-lg font-bold">{totalKm} km</strong>
+                <span className="text-[11px] text-ink/65">
+                  distance ({route.distance_meters.toLocaleString()} m)
+                </span>
               </div>
 
-              <div className="rounded-xl border border-ink/10 bg-cream/80 p-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold opacity-70">
-                  <Car className="h-3.5 w-3.5" aria-hidden="true" />
-                  Matatu / Drive
+              {driveSec > 0 && (
+                <div className="rounded-xl border border-ink/10 bg-cream/80 p-3">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-ink/70">
+                    <Car className="h-3.5 w-3.5" aria-hidden="true" />
+                    Matatu / Drive
+                  </span>
+                  <strong className="mt-1 block text-lg font-bold">{driveTimeLabel}</strong>
+                  <span className="text-[11px] text-ink/65">estimated drive</span>
                 </div>
-                <p className="mt-1 text-lg font-bold">{driveTimeLabel}</p>
-                <p className="text-[11px] opacity-75">Typical road travel time</p>
-              </div>
+              )}
+
+              {walkSec > 0 && (
+                <div className="rounded-xl border border-ink/10 bg-cream/80 p-3">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-ink/70">
+                    <Footprints className="h-3.5 w-3.5" aria-hidden="true" />
+                    Walking
+                  </span>
+                  <strong className="mt-1 block text-lg font-bold">{walkTimeLabel}</strong>
+                  <span className="text-[11px] text-ink/65">estimated walk</span>
+                </div>
+              )}
 
               <div className="rounded-xl border border-ink/10 bg-cream/80 p-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold opacity-70">
-                  <Footprints className="h-3.5 w-3.5" aria-hidden="true" />
-                  Walking Time
-                </div>
-                <p className="mt-1 text-lg font-bold">{walkTimeLabel}</p>
-                <p className="text-[11px] opacity-75">
-                  ~{approxStepsCount.toLocaleString()} walking steps
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-ink/10 bg-cream/80 p-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold opacity-70">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-ink/70">
                   <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
-                  Turns &amp; Checkpoints
-                </div>
-                <p className="mt-1 text-lg font-bold">{route.steps.length} steps</p>
-                <p className="text-[11px] opacity-75">{landmarks.length} key landmarks</p>
+                  Checkpoints
+                </span>
+                <strong className="mt-1 block text-lg font-bold">
+                  {detailedSteps.length} steps
+                </strong>
+                <span className="text-[11px] text-ink/65">{landmarks.length} key landmarks</span>
               </div>
             </div>
+            <p className="supporting-label mt-3 text-xs text-ink/65">
+              Driving route. Walking time is a distance-based estimate.
+            </p>
           </section>
 
-          {/* 0b. Matatu Saccos, Stages & Fare Estimates */}
+          {/* 2. Side-by-Side Map & Step-by-Step Navigator */}
+          <div className="route-focus grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+            {bounds ? (
+              <div
+                className="directions-map min-h-[300px] overflow-hidden rounded-2xl border border-ink/10 shadow-xs"
+                aria-label="Complete route map"
+              >
+                <MapContainer
+                  key={JSON.stringify(pts)}
+                  center={bounds.getCenter()}
+                  zoom={14}
+                  scrollWheelZoom={false}
+                  style={{ height: 320, width: '100%' }}
+                  bounds={bounds}
+                  boundsOptions={{ padding: [30, 30] }}
+                >
+                  <RouteMapViewport bounds={bounds} />
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution="&copy; OpenStreetMap contributors"
+                  />
+                  <Polyline
+                    positions={pts}
+                    pathOptions={{ color: '#8fb39b', weight: 5, opacity: 0.85 }}
+                  />
+                  <Marker position={pts[0]}>
+                    <Popup>Start: {routeEndpoints.origin}</Popup>
+                  </Marker>
+                  <Marker position={pts[pts.length - 1]}>
+                    <Popup>Destination: {routeEndpoints.destination}</Popup>
+                  </Marker>
+                </MapContainer>
+              </div>
+            ) : (
+              <p className="map-unavailable rounded-2xl border border-ink/10 bg-white/80 p-5">
+                Map unavailable. Use the instructions.
+              </p>
+            )}
+
+            <section
+              className="current-instruction flex flex-col justify-between rounded-2xl border border-lavender/45 bg-white/90 p-5 shadow-xs"
+              aria-label="Current instruction"
+            >
+              <div role="status" aria-live="polite" aria-atomic="true">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="inline-flex items-center gap-2 rounded-full bg-lavender/25 px-3 py-1 text-xs font-bold uppercase tracking-wide text-ink">
+                    {currentStep
+                      ? `Step ${selectedStep + 1} of ${detailedSteps.length}`
+                      : 'No step instructions available'}
+                  </h3>
+                  {currentStep && (
+                    <span className="supporting-label rounded-full bg-cream px-2.5 py-0.5 text-xs font-semibold text-ink/80">
+                      {formatStepDistance(currentStep.distanceMeters)}
+                      {currentStep.durationSec
+                        ? ` · ${formatDurationMinutes(currentStep.durationSec)}`
+                        : ''}
+                    </span>
+                  )}
+                </div>
+
+                {currentStep && (
+                  <p className="current-instruction-text mt-4 text-lg font-semibold leading-snug text-ink">
+                    {(plainWords
+                      ? simplifyDirectionInstruction(currentStep.instruction)
+                      : currentStep.instruction) || 'Continue along the route.'}
+                  </p>
+                )}
+
+                {detailedSteps.length > 1 && (
+                  <div className="mt-4 flex gap-1.5" aria-hidden="true">
+                    {detailedSteps.map((_, idx) => (
+                      <span
+                        key={idx}
+                        className={
+                          'h-1.5 flex-1 rounded-full transition-colors ' +
+                          (idx === selectedStep
+                            ? 'bg-ink'
+                            : idx < selectedStep
+                              ? 'bg-lavender'
+                              : 'bg-mist')
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 space-y-2.5 border-t border-ink/10 pt-3">
+                <div
+                  className="step-navigation flex items-center justify-between gap-3"
+                  role="group"
+                  aria-label="Step navigation"
+                >
+                  <Button
+                    variant="outline"
+                    className="flex-1 rounded-full"
+                    disabled={!currentStep || selectedStep === 0}
+                    onClick={() => setSelectedStep(step => Math.max(0, step - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    className="flex-1 rounded-full"
+                    disabled={!currentStep || selectedStep === detailedSteps.length - 1}
+                    onClick={() =>
+                      setSelectedStep(step => Math.min(detailedSteps.length - 1, step + 1))
+                    }
+                  >
+                    Next
+                  </Button>
+                </div>
+                <p className="supporting-label text-center text-xs text-ink/65">
+                  {currentStep && selectedStep === detailedSteps.length - 1
+                    ? 'Final step. '
+                    : ''}
+                  Move through instructions at your own pace.
+                </p>
+              </div>
+            </section>
+          </div>
+
+          {/* 3. Matatu Saccos, Stages & Fare Estimates */}
           {saccoOptions.length > 0 && (
             <section
               aria-label="Matatu Saccos and fare estimates"
-              className="space-y-3 rounded-2xl border border-ink/10 bg-white/85 p-4"
+              className="route-section space-y-3.5 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="flex items-center gap-2 text-base font-semibold">
-                    <BusFront className="h-4 w-4 text-ink/70" aria-hidden="true" />
-                    Matatu Saccos, Connecting Stages &amp; Estimated Fares
+                  <h3 className="route-section-heading flex items-center gap-2 text-base font-bold">
+                    <BusFront className="h-4 w-4 text-ink/75" aria-hidden="true" />
+                    Matatu options &amp; estimated fares
                   </h3>
-                  <p className="mt-0.5 text-xs opacity-75">
+                  <p className="mt-0.5 text-xs text-ink/70">
                     Select a matatu route or Sacco option below to see where to board, transfer, and what phrase to tell the conductor.
                   </p>
                 </div>
@@ -953,12 +1325,12 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                     onClick={onRehearseMatatu}
                   >
                     <BusFront className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                    Rehearse this trip with Conductor Otieno →
+                    Rehearse this trip with Conductor Otieno
                   </Button>
                 )}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3.5 sm:grid-cols-2">
                 {saccoOptions.map(sacco => {
                   const isSelected = selectedSaccoId === sacco.id
                   return (
@@ -975,14 +1347,14 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                         }
                       }}
                       className={
-                        'cursor-pointer rounded-xl border p-3.5 text-left transition-colors ' +
+                        'cursor-pointer rounded-xl border p-4 text-left transition-colors ' +
                         (isSelected
                           ? 'border-lavender bg-lavender/20'
                           : 'border-ink/10 bg-cream/75 hover:border-lavender/60')
                       }
                     >
                       <div className="flex flex-wrap items-center justify-between gap-1.5">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-ink px-2.5 py-0.5 text-xs font-bold text-cream">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-ink px-3 py-0.5 text-xs font-bold text-cream">
                           <BusFront className="h-3 w-3" aria-hidden="true" />
                           {sacco.routeNumber}
                         </span>
@@ -998,19 +1370,19 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                         </span>
                       </div>
 
-                      <p className="mt-2 text-sm font-bold">{sacco.saccoName}</p>
-                      <p className="mt-0.5 text-xs opacity-80">{sacco.corridor}</p>
+                      <p className="mt-2.5 text-sm font-bold">{sacco.saccoName}</p>
+                      <p className="mt-0.5 text-xs text-ink/75">{sacco.corridor}</p>
 
-                      <div className="mt-2.5 grid grid-cols-2 gap-2 rounded-lg bg-white/85 p-2.5 text-xs">
+                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-white/90 p-2.5 text-xs">
                         <div>
-                          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-65">
+                          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink/60">
                             <Banknote className="h-3 w-3" aria-hidden="true" />
                             Off-Peak Fare
                           </span>
                           <p className="mt-0.5 font-bold">{sacco.offPeakFareKes}</p>
                         </div>
                         <div>
-                          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-65">
+                          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink/60">
                             <Banknote className="h-3 w-3" aria-hidden="true" />
                             Peak / Rush Fare
                           </span>
@@ -1018,7 +1390,7 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                         </div>
                       </div>
 
-                      <div className="mt-2.5 space-y-1 text-xs">
+                      <div className="mt-3 space-y-1 text-xs">
                         <p>
                           <strong>Board at:</strong> {sacco.boardingStage}
                         </p>
@@ -1026,61 +1398,152 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                           <strong>Alight at:</strong> {sacco.alightingStage}
                         </p>
                         {sacco.connectionNote && (
-                          <p className="flex items-start gap-1 text-ink/80">
+                          <p className="flex items-start gap-1.5 text-ink/80">
                             <ArrowRightLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             <span>{sacco.connectionNote}</span>
                           </p>
                         )}
-                        <p className="opacity-75">
+                        <p className="text-ink/70">
                           <strong>Payment:</strong> {sacco.paymentMethods}
                         </p>
                       </div>
 
-                      <div className="mt-2.5 rounded-lg border border-lavender/35 bg-white/90 px-2.5 py-1.5 text-xs">
-                        <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-65">
+                      <div className="mt-3 rounded-lg border border-lavender/35 bg-white/95 px-3 py-2 text-xs">
+                        <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink/60">
                           What to say to the conductor:
                         </span>
-                        <span className="font-semibold">{sacco.conductorPhrase}</span>
+                        <span className="font-semibold text-ink">{sacco.conductorPhrase}</span>
                       </div>
                     </div>
                   )
                 })}
               </div>
-              <p className="text-[11px] opacity-70">
+              <p className="text-[11px] text-ink/65">
                 Note: Matatu fares and stages are approximate public transit estimates (Digital Matatus / Nairobi corridors) and vary by weather and traffic. Confirm fare with the conductor before boarding.
               </p>
             </section>
           )}
 
-          {/* 1. Sensory & Environment Snapshot: Weather, Busyness, Noise Level */}
+          {/* 4. Sensory & Environment Snapshot: Weather, Busyness, Noise Level */}
           {sensory && (
             <section
               aria-label="Environment, busyness, noise, and weather conditions"
-              className="space-y-3 rounded-2xl border border-ink/10 bg-white/80 p-4"
+              className="route-section space-y-4 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="flex items-center gap-2 text-base font-semibold">
-                  <Sparkles className="h-4 w-4 text-ink/70" aria-hidden="true" />
-                  Weather, busyness &amp; noise levels right now
+                <h3 className="route-section-heading flex items-center gap-2 text-base font-bold">
+                  <Sparkles className="h-4 w-4 text-ink/75" aria-hidden="true" />
+                  Sensory snapshot
                 </h3>
                 <span className="inline-flex items-center gap-1 rounded-full bg-mist px-3 py-0.5 text-xs font-medium">
                   <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                  Live sensory &amp; weather check
+                  Place-type &amp; time-of-day estimates
                 </span>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                {/* Weather Card with detailed metrics */}
-                <div className="rounded-xl border border-ink/10 bg-cream/70 p-3.5">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide opacity-75">
-                    <CloudSun className="h-4 w-4" aria-hidden="true" />
-                    Live Weather
+              {/* Hero row: Crowd + Noise, color-coded with visual meters */}
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                {/* Crowd card — color-coded badge + 3-icon scale */}
+                <div className={`rounded-2xl border-2 p-4 ${SENSORY_COLOR_BG[sensory.busynessColor]} border-current/20`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/75">
+                      <Users className="h-4 w-4" aria-hidden="true" />
+                      Crowd
+                    </div>
+                    <span className={`rounded-full bg-white/90 px-2.5 py-0.5 text-xs font-bold ${SENSORY_COLOR_TEXT[sensory.busynessColor]}`}>
+                      {sensory.busynessLevel}
+                    </span>
                   </div>
-                  <p className="mt-1.5 text-sm font-bold">
-                    {sensory.weatherSummary}
-                    {sensory.temperatureC !== null ? ` · ${sensory.temperatureC}°C` : ''}
+                  {/* Crowd icon scale: 3 user icons, filled up to the tier */}
+                  <div className="mt-3 flex items-center gap-1.5" aria-hidden="true">
+                    {[1, 2, 3].map(i => (
+                      <span
+                        key={i}
+                        className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
+                          i <= crowdTier(sensory.busynessLevel)
+                            ? SENSORY_COLOR_BAR[sensory.busynessColor]
+                            : 'bg-white/60'
+                        }`}
+                      >
+                        <Users className={`h-3.5 w-3.5 ${i <= crowdTier(sensory.busynessLevel) ? 'text-white' : 'text-ink/40'}`} />
+                      </span>
+                    ))}
+                    <span className="ml-auto text-[11px] font-medium text-ink/70">
+                      {crowdTier(sensory.busynessLevel) === 1
+                        ? 'Plenty of space'
+                        : crowdTier(sensory.busynessLevel) === 2
+                          ? 'Steady foot traffic'
+                          : 'Busy / crowded'}
+                    </span>
+                  </div>
+                  <p className="mt-2.5 text-xs leading-relaxed text-ink/80">{sensory.busynessDetail}</p>
+                  <p className="mt-2 rounded-lg bg-white/85 px-2.5 py-1 text-[11px] font-medium text-ink/80">
+                    {sensory.quietHoursHint}
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-medium">
+                </div>
+
+                {/* Noise card — color-coded badge + dB meter bar */}
+                <div className={`rounded-2xl border-2 p-4 ${SENSORY_COLOR_BG[sensory.busynessColor]} border-current/20`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/75">
+                      <Volume2 className="h-4 w-4" aria-hidden="true" />
+                      Noise
+                    </div>
+                    <span className={`rounded-full bg-white/90 px-2.5 py-0.5 text-xs font-bold ${SENSORY_COLOR_TEXT[sensory.busynessColor]}`}>
+                      {sensory.noiseLevel}
+                    </span>
+                  </div>
+                  {/* dB meter bar: 40 → 85 dB scale, fill at the estimated value */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-[10px] font-medium text-ink/60">
+                      <span>40 dB</span>
+                      <span className="flex items-center gap-1 font-bold text-ink">
+                        <Gauge className="h-3 w-3" aria-hidden="true" />
+                        ~{noiseDbValue(sensory.noiseLevel)} dB
+                      </span>
+                      <span>85 dB</span>
+                    </div>
+                    <div className="relative mt-1 h-2.5 rounded-full bg-white/70" aria-hidden="true">
+                      {/* Scale ticks (sage→peach→lavender zones) */}
+                      <div className="absolute inset-0 flex">
+                        <div className="h-full w-1/3 rounded-l-full bg-sage/40" />
+                        <div className="h-full w-1/3 bg-peach/50" />
+                        <div className="h-full w-1/3 rounded-r-full bg-lavender/45" />
+                      </div>
+                      {/* Fill marker at the estimated dB value */}
+                      <div
+                        className={`absolute top-0 h-full rounded-full ${SENSORY_COLOR_BAR[sensory.busynessColor]}`}
+                        style={{ width: `${((noiseDbValue(sensory.noiseLevel) - 40) / (85 - 40)) * 100}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-ink/70">
+                      <Activity className="h-3 w-3" aria-hidden="true" />
+                      {noiseDbValue(sensory.noiseLevel) < 60
+                        ? 'Quiet indoor voices'
+                        : noiseDbValue(sensory.noiseLevel) < 75
+                          ? 'Conversation-level'
+                          : 'Street-level sounds'}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-ink/80">{sensory.noiseDetail}</p>
+                </div>
+              </div>
+
+              {/* Weather card — secondary, full width */}
+              <div className="rounded-xl border border-ink/10 bg-cream/75 p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/70">
+                  <CloudSun className="h-4 w-4" aria-hidden="true" />
+                  Weather
+                </div>
+                <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold">
+                      {sensory.weatherSummary}
+                      {sensory.temperatureC !== null ? ` · ${sensory.temperatureC}°C` : ''}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-ink/80">{sensory.weatherNote}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-[11px] font-medium">
                     {sensory.feelsLikeC !== null && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5">
                         <Sun className="h-3 w-3" aria-hidden="true" />
@@ -1105,30 +1568,6 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 text-xs leading-relaxed opacity-80">{sensory.weatherNote}</p>
-                </div>
-
-                {/* Busyness Card */}
-                <div className="rounded-xl border border-ink/10 bg-cream/70 p-3.5">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide opacity-75">
-                    <Users className="h-4 w-4" aria-hidden="true" />
-                    How busy it is
-                  </div>
-                  <p className="mt-1.5 text-sm font-bold">{sensory.busynessLevel}</p>
-                  <p className="mt-1 text-xs leading-relaxed opacity-80">{sensory.busynessDetail}</p>
-                  <p className="mt-1.5 rounded-lg bg-white/80 px-2.5 py-1 text-[11px] font-medium">
-                    {sensory.quietHoursHint}
-                  </p>
-                </div>
-
-                {/* Noise Level Card */}
-                <div className="rounded-xl border border-ink/10 bg-cream/70 p-3.5">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide opacity-75">
-                    <Volume2 className="h-4 w-4" aria-hidden="true" />
-                    Noise levels
-                  </div>
-                  <p className="mt-1.5 text-sm font-bold">{sensory.noiseLevel}</p>
-                  <p className="mt-1 text-xs leading-relaxed opacity-80">{sensory.noiseDetail}</p>
                 </div>
               </div>
 
@@ -1138,17 +1577,17 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
             </section>
           )}
 
-          {/* 2. Visual Place Preview (How the place looks like) */}
+          {/* 5. Visual Place Preview (How the place looks) */}
           {photos.length > 0 && (
             <section
               aria-label="Photos of how the place looks"
-              className="space-y-3 rounded-2xl border border-ink/10 bg-white/80 p-4"
+              className="route-section space-y-3.5 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
             >
-              <h3 className="flex items-center gap-2 text-base font-semibold">
-                <Camera className="h-4 w-4 text-ink/70" aria-hidden="true" />
-                How the place looks
+              <h3 className="route-section-heading flex items-center gap-2 text-base font-bold">
+                <Camera className="h-4 w-4 text-ink/75" aria-hidden="true" />
+                Photos &amp; illustrations
               </h3>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3.5 sm:grid-cols-2">
                 {photos.map((photo, idx) => (
                   <figure
                     key={idx}
@@ -1157,23 +1596,33 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                     <img
                       src={photo.url}
                       alt={photo.caption}
-                      className="h-44 w-full object-cover"
-                      onError={e => {
-                        const target = e.currentTarget
-                        if (!target.dataset.fallback) {
-                          target.dataset.fallback = '1'
-                          target.src = buildIllustratedPlaceSvg(
-                            destination,
-                            'Visual landmark & entrance preview',
-                            idx % 2 === 0 ? '#a89bd4' : '#8fb39b',
-                          )
-                        }
-                      }}
+                      className="h-48 w-full object-cover"
+                      onError={() =>
+                        setPhotos(current =>
+                          current.map((item, i) =>
+                            i === idx && !item.url.startsWith('data:')
+                              ? {
+                                  url: buildIllustratedPlaceSvg(
+                                    'Illustration',
+                                    'General entrance scene',
+                                    '#8fb39b',
+                                  ),
+                                  caption:
+                                    'Illustration of a general entrance, not a destination photo.',
+                                }
+                              : item,
+                          ),
+                        )
+                      }
                     />
-                    <figcaption className="px-3 py-2 text-xs leading-snug">
-                      <span className="font-semibold">{photo.caption}</span>
+                    <figcaption className="px-3.5 py-2.5 text-xs leading-snug">
+                      <span className="font-semibold">
+                        {photo.url.startsWith('data:')
+                          ? 'Illustration of a general place, not a verified destination view.'
+                          : photo.caption}
+                      </span>
                       {photo.attribution && (
-                        <span className="block text-[11px] opacity-65">
+                        <span className="mt-0.5 block text-[11px] text-ink/65">
                           Photo: {photo.attribution}
                         </span>
                       )}
@@ -1184,28 +1633,28 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
             </section>
           )}
 
-          {/* 3. Key Landmarks to Watch For */}
+          {/* 6. Key Landmarks to Watch For */}
           {landmarks.length > 0 && (
             <section
               aria-label="Key landmarks along the way"
-              className="space-y-3 rounded-2xl border border-ink/10 bg-white/80 p-4"
+              className="route-section space-y-3.5 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
             >
-              <h3 className="flex items-center gap-2 text-base font-semibold">
-                <Landmark className="h-4 w-4 text-ink/70" aria-hidden="true" />
-                Key landmarks to spot
+              <h3 className="route-section-heading flex items-center gap-2 text-base font-bold">
+                <Landmark className="h-4 w-4 text-ink/75" aria-hidden="true" />
+                Landmarks along the route
               </h3>
-              <div className="grid gap-2.5 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {landmarks.map((lm, idx) => (
                   <div
                     key={idx}
-                    className="flex items-start gap-3 rounded-xl border border-ink/10 bg-cream/70 p-3"
+                    className="flex items-start gap-3 rounded-xl border border-ink/10 bg-cream/75 p-3.5"
                   >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-lavender/35 text-xs font-bold">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-lavender/40 text-xs font-bold">
                       {idx + 1}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center justify-between gap-1">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide opacity-65">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/65">
                           {lm.category}
                         </span>
                         {lm.distanceFromStart && (
@@ -1214,8 +1663,8 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                           </span>
                         )}
                       </div>
-                      <p className="text-sm font-semibold leading-snug">{lm.name}</p>
-                      <p className="mt-0.5 text-xs leading-relaxed opacity-80">{lm.note}</p>
+                      <p className="mt-0.5 text-sm font-semibold leading-snug">{lm.name}</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-ink/80">{lm.note}</p>
                     </div>
                   </div>
                 ))}
@@ -1223,65 +1672,58 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
             </section>
           )}
 
-          {/* 4. Interactive Map */}
-          <div className="directions-map">
-            <MapContainer
-              center={bounds.getCenter()}
-              zoom={14}
-              scrollWheelZoom={false}
-              style={{ height: 320, width: '100%', borderRadius: 16 }}
-              bounds={bounds}
-              boundsOptions={{ padding: [30, 30] }}
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-              />
-              <Polyline
-                positions={pts}
-                pathOptions={{ color: '#8fb39b', weight: 5, opacity: 0.85 }}
-              />
-              <Marker position={pts[0]}>
-                <Popup>Start: {origin}</Popup>
-              </Marker>
-              <Marker position={pts[pts.length - 1]}>
-                <Popup>Destination: {destination}</Popup>
-              </Marker>
-            </MapContainer>
-          </div>
-
-          <div className="directions-summary">
-            <span className="directions-distance">
-              <MapPin aria-hidden="true" />
-              {totalKm} km · {driveTimeLabel} by matatu/car · {walkTimeLabel} walking · {route.steps.length} steps
-            </span>
-            <span className="directions-candidate-label">
-              Candidate path — confirm with your co-designer.
-            </span>
-          </div>
-
-          <ol className="directions-steps" aria-label="Turn-by-turn directions">
-            {(detailedSteps.length > 0 ? detailedSteps : route.steps).map((s, i) => {
-              const distLabel = 'distanceMeters' in s ? formatStepDistance(s.distanceMeters) : ''
-              const durLabel =
-                'durationSec' in s && s.durationSec ? formatDurationMinutes(s.durationSec) : ''
-              return (
-                <li key={i} className="directions-step">
-                  <span className="directions-step-num">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <span className="directions-step-text block">{s.instruction}</span>
-                    {(distLabel || durLabel) && (
-                      <span className="mt-1 inline-flex items-center gap-2 text-xs font-medium opacity-70">
-                        {distLabel && <span>Distance: {distLabel}</span>}
-                        {distLabel && durLabel && <span>·</span>}
-                        {durLabel && <span>Time: {durLabel}</span>}
+          {/* 7. Complete Interactive Route Steps List */}
+          <section className="route-section space-y-3 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="route-section-heading text-base font-bold">
+                All route steps ({detailedSteps.length})
+              </h3>
+              <span className="text-xs text-ink/65">
+                Click any step to focus it above
+              </span>
+            </div>
+            <ol className="directions-steps space-y-2" aria-label="Turn-by-turn directions">
+              {(detailedSteps.length > 0 ? detailedSteps : route.steps).map((s, i) => {
+                const distLabel = 'distanceMeters' in s ? formatStepDistance(s.distanceMeters) : ''
+                const durLabel =
+                  'durationSec' in s && s.durationSec ? formatDurationMinutes(s.durationSec) : ''
+                const isActiveStep = i === selectedStep
+                return (
+                  <li
+                    key={i}
+                    onClick={() => setSelectedStep(i)}
+                    className={
+                      'directions-step cursor-pointer rounded-xl border p-3.5 transition-colors ' +
+                      (isActiveStep
+                        ? 'border-lavender bg-lavender/20'
+                        : 'border-ink/10 bg-cream/60 hover:border-lavender/50 hover:bg-white')
+                    }
+                  >
+                    <span
+                      className={
+                        'directions-step-num ' +
+                        (isActiveStep ? 'bg-ink text-cream' : 'bg-mist text-ink')
+                      }
+                    >
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className="directions-step-text block font-medium">
+                        {plainWords ? simplifyDirectionInstruction(s.instruction) : s.instruction}
                       </span>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
-          </ol>
+                      {(distLabel || durLabel) && (
+                        <span className="mt-1 inline-flex items-center gap-2 text-xs font-medium text-ink/70">
+                          {distLabel && <span>Distance: {distLabel}</span>}
+                          {distLabel && durLabel && <span>·</span>}
+                          {durLabel && <span>Time: {durLabel}</span>}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
         </div>
       )}
     </section>

@@ -26,6 +26,7 @@ import { UserAudioControlView } from '@/components/pipecat/user-audio-control'
 import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
 import JoyMascot from '@/components/JoyMascot'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
+import { useBrowserSTT } from '@/lib/useBrowserSTT'
 import { Button } from '@/components/ui/button'
 import { Sprout, Cross, BusFront, Landmark, Signpost, MessageCircle, MicOff, Pause, Play } from 'lucide-react'
 import {
@@ -144,6 +145,20 @@ function RehearsalView() {
     if (speaker === 'You') setNod(n => n + 1)
   }, [])
 
+  // Browser STT for the gemini_text path. The Lovable proxy carries REST but
+  // not the Gemini Live WebSocket, so the bot has no server-side STT — the
+  // browser transcribes and the transcript goes out as RTVI sendText, the
+  // same path as the typed input. Joy still speaks via GeminiTTSService.
+  const sendSpoken = useCallback((transcript: string) => {
+    const text = transcript.trim()
+    if (!client || !active.current || !text) return
+    if (state !== 'listening' && state !== 'speaking') return
+    void client.sendText(text, { run_immediately: true, audio_response: true })
+      .then(() => addTurn('You', text))
+      .catch(() => setError('Your speech could not be sent. Try again or type below.'))
+  }, [client, state, addTurn])
+  const browserSTT = useBrowserSTT({ onFinal: sendSpoken })
+
   // Listen for bot transcript events
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
     if (active.current && data.text.trim()) addTurn('Joy', data.text)
@@ -226,6 +241,7 @@ function RehearsalView() {
     ReadAloud.stop()
     setReadAloud(false)
     setAloudSpeaking(false)
+    browserSTT.stop()  // stop browser STT too — don't leave the mic listening
     client?.enableMic(false)
     const tracks = client?.tracks()
     tracks?.local.audio?.stop()
@@ -269,13 +285,23 @@ function RehearsalView() {
 
   const handleToggleMic = () => {
     if (!client || !active.current) return
-    try {
-      client.enableMic(!micEnabled)
-      setMicEnabled(!micEnabled)
-      setError('')
-    } catch {
+    if (!browserSTT.supported) {
       setMicEnabled(false)
-      setError('Microphone unavailable. You can keep typing with the mic off.')
+      setError('Speech recognition is not available in this browser. You can keep typing below.')
+      return
+    }
+    if (micEnabled) {
+      browserSTT.stop()
+      setMicEnabled(false)
+    } else {
+      try {
+        browserSTT.start()
+        setMicEnabled(true)
+        setError('')
+      } catch {
+        setMicEnabled(false)
+        setError('Microphone unavailable. You can keep typing with the mic off.')
+      }
     }
   }
 

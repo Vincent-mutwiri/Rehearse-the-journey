@@ -30,10 +30,10 @@ import { useRehearsalSession, type RolePlayState } from './session/useRehearsalS
 import WelcomeLanding from './presentation/WelcomeLanding'
 import JoyCenterpiece from './presentation/JoyCenterpiece'
 import ApprovalGateCard from './presentation/ApprovalGateCard'
-import CompanionModesPanel from './presentation/CompanionModesPanel'
 import SettingsDrawer from './presentation/SettingsDrawer'
 import Dashboard, { type DashboardSection } from './components/Dashboard'
 import Directions from './components/Directions'
+import CompanionModesPanel from './presentation/CompanionModesPanel'
 import CalmMe, { CALM_ME_OPEN_EVENT } from './components/CalmMe'
 import StoryCard from './components/StoryCard'
 import { STORIES } from './stories'
@@ -470,8 +470,9 @@ function RehearsalView() {
           </div>
         </details>
 
-        <details className="rehearsal-disclosure">
+        <details hidden className="rehearsal-disclosure">
           <summary>Journey &amp; modes</summary>
+          {false && (
           <CompanionModesPanel
             mode={mode}
             onSelectMode={handleSelectMode}
@@ -527,6 +528,7 @@ function RehearsalView() {
             providerNotice={providerNotice}
             whiskerTraces={whiskerTraces}
           />
+          )}
         </details>
           </SettingsDrawer>
         </header>

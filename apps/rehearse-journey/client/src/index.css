@@ -233,7 +233,7 @@ button { min-height: 44px; }
 .calm-me-button {
   position: fixed;
   z-index: 30;
-  top: max(24px, env(safe-area-inset-top));
+  top: max(78px, calc(env(safe-area-inset-top) + 54px));
   right: max(28px, env(safe-area-inset-right));
   display: inline-flex;
   align-items: center;
@@ -294,7 +294,7 @@ button { min-height: 44px; }
 .calm-me-settings select { min-height: 42px; padding: 7px 10px; border: 1px solid var(--mist); border-radius: 10px; background: #fffdfa; color: var(--ink); }
 .calm-me-privacy { margin: 24px 0 0; color: #655e76; font-size: 12px; line-height: 1.6; }
 @media (max-width: 700px) {
-  .calm-me-button { top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); padding: 10px 13px; }
+  .calm-me-button { top: max(64px, calc(env(safe-area-inset-top) + 44px)); right: max(14px, env(safe-area-inset-right)); padding: 10px 13px; }
   .calm-me-backdrop { align-items: end; padding: 12px; }
   .calm-me-dialog { max-height: calc(100dvh - 24px); border-radius: 22px; padding: 24px 20px max(24px, env(safe-area-inset-bottom)); }
   .calm-me-settings label { grid-template-columns: 1fr; gap: 6px; }

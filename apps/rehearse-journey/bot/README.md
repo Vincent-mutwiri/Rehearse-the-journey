@@ -56,6 +56,20 @@ INFO for the demo; verbose service logs can include conversation content.
 | OpenAI STT+LLM+TTS | 🟡 Key set, verify live |
 | Gemini Live | ⚪ Not tested (key not set) |
 
+## v1.1 Modules & Whisker / Tail Dev Tooling
+
+- `flow_config.py` & `flow_engine.py`: Structured Pipecat Flows across 4 scenarios & 4 chaos levels
+- `multi_agent.py`: Shared-bus multi-agent handoff (`joy` ↔ `amani`) and parallel fan-out
+- `providers.py`: Vendor-agnostic stack selection and runtime fallback chain
+- `vision.py`: Live help camera sign explanation with non-navigation safety boundary
+- `mode_router.py`: Four-mode router (`learn`, `practise`, `explore`, `live-help`)
+- `dev_tooling.py`: Whisker real-time frame trace & Tail terminal session snapshot (`ENABLE_WHISKER=1 ENABLE_TAIL=1 uv run bot.py`)
+
+Run all v1.1 unit/integration checks with:
+```bash
+python3 test_v11_sprints.py
+```
+
 ## Fictional fixture disclosure
 
 This scenario uses a scripted fictional hospital. It **does not** represent a

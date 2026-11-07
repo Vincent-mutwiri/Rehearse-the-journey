@@ -5,7 +5,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from loguru import logger
+try:
+    from loguru import logger
+except ImportError:  # pragma: no cover - fallback when running outside bot/.venv
+    import logging
+
+    logger = logging.getLogger("rehearse_journey")
 
 
 @dataclass

@@ -164,6 +164,24 @@ auto-advance and paused/ended sessions all stop continuous rendering. A text
 placeholder keeps Joy’s accessible label available while loading or if WebGL
 fails. Edit the rig and its frame poses in `JoyScene.tsx` to change the character.
 
+## v1.1 Full Pipecat Architecture & Dev Tooling (SA–SF)
+
+- **SA — Pipecat Flows (`bot/flow_config.py`, `bot/flow_engine.py`):** Deterministic 4-step node graphs for Hospital Reception (Levels 1–4, including Level 3 room-move diversion), Matatu Stage (`Conductor Otieno`), Government Service (`Officer Wanjiku`), and Asking for Directions (`Passerby Maina`). See [`Project/flows-spike-notes.md`](../../Project/flows-spike-notes.md).
+- **SB — Multi-Agent Chaos Levels (`bot/multi_agent.py`):** Shared session bus (`MultiAgentBus`) supporting speaker handoff (`Receptionist Joy` ↔ `Patient Amani`) and Level 4 parallel fan-out (two mascots speaking in overlap; user response resolves who continues). See [`Project/multi-agent-spike-notes.md`](../../Project/multi-agent-spike-notes.md).
+- **SC — Vendor-Agnostic Provider Layer (`bot/providers.py`):** `ProviderRegistry` + `FallbackChainCoordinator` (`GeminiLive` → `DeepgramOpenAICartesia` → `GeminiProxy` → `OpenAIStack` → `text_only`), driven by `AbilityModel` audio preference.
+- **SD — Multimodal Camera ("Explain this sign", `bot/vision.py`):** Per-session approval-gated camera consent, plain-language sign explanation via `simplify-text`, independent mic/camera controls, and strict `"Explanation only; confirm with staff or signage. Not obstacle detection or navigation"` boundary. See [`Project/multimodal-spike-notes.md`](../../Project/multimodal-spike-notes.md).
+- **SE — Four Modes Sharing One Profile (`bot/mode_router.py`):** `Practise`, `Learn` (goal → editable `RehearsalStep`s), `Explore` (sourced OpenStreetMap / Digital Matatus facts vs. generated explanation, strict `"unknown"` rule, labelled Kiswahili translation, and candidate routes), and `Live help`, plus all 20 approval cases in [`Project/approval-cases.md`](../../Project/approval-cases.md).
+- **SF — Pipecat UI, React Native Bridge (`mobile/`), & Whisker + Tail (`bot/dev_tooling.py`):**
+  ```bash
+  # Run bot with Whisker frame debugger & Tail session dashboard enabled:
+  cd apps/rehearse-journey/bot
+  ENABLE_WHISKER=1 ENABLE_TAIL=1 uv run bot.py
+
+  # Run v1.1 backend verification suite:
+  python3 test_v11_sprints.py
+  ```
+  In the React client, click **Whisker / Tail** in the v1.1 Architecture Studio bar to inspect live RTVI frame flow and session state. See [`Project/react-native-spike-notes.md`](../../Project/react-native-spike-notes.md) for the React Native client and toolkit adapter bridge.
+
 ## S4.5 accessibility review
 
 Keyboard navigation, focus visibility, browser accessibility semantics, and

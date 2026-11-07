@@ -1,0 +1,15 @@
+{
+  "name": "rehearse-journey-mobile",
+  "version": "1.1.0",
+  "private": true,
+  "description": "SF.2 & SF.3 — React Native client & toolkit adapter bridge for Rehearse the Journey",
+  "main": "src/MobileRehearsalScreen.tsx",
+  "dependencies": {
+    "@pipecat-ai/client-js": "^1.4.0",
+    "@pipecat-ai/client-react-native": "^1.4.0",
+    "@pipecat-ai/react-native-small-webrtc-transport": "^1.4.0",
+    "expo-speech": "~13.0.0",
+    "react": "^18.3.1",
+    "react-native": "^0.76.0"
+  }
+}

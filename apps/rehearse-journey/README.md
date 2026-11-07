@@ -29,6 +29,21 @@ pnpm dev               # serves on http://localhost:3000
 
 Open **http://localhost:3000** in Chrome.
 
+### Calm Me
+
+The persistent **Calm Me** button is in the upper-right corner of the app.
+It opens an independent calming session that reads the exact predefined
+opening and Kenyan Swahili/Sheng affirmations aloud using the browser's native
+speech synthesis. It does not request the microphone, listen, record, or send
+conversation audio to Pipecat. If a rehearsal is active, opening Calm Me pauses
+that rehearsal; it never resumes it automatically.
+
+Use the overlay to pause or continue voice, adjust volume and speed, repeat the
+sequence, or end the session. Voice availability and Swahili pronunciation
+depend on the voices installed by the browser/operating system. When speech
+synthesis is unavailable, the affirmations remain readable and can be advanced
+manually.
+
 Start Rehearsal connects with the microphone off. Type a made-up reply and press
 Send (or Enter; Shift+Enter adds a line). Turn microphone on only when you want
 to speak. Both input methods use the same bot conversation.

@@ -25,6 +25,7 @@ import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
 import { UserAudioControlView } from '@/components/pipecat/user-audio-control'
 import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
 import JoyMascot from '@/components/JoyMascot'
+import CalmMe, { CALM_ME_OPEN_EVENT } from '@/components/CalmMe'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { useBrowserSTT } from '@/lib/useBrowserSTT'
 import { Button } from '@/components/ui/button'
@@ -308,6 +309,16 @@ function RehearsalView() {
       setStopping(false)
     }
   }, [client])
+
+  // Calm Me is independent of Pipecat, but an active rehearsal must yield its
+  // audio. It stays paused after Calm Me closes; resuming remains explicit.
+  useEffect(() => {
+    const pauseForCalmMe = () => {
+      if (active.current) void stopSession('paused')
+    }
+    window.addEventListener(CALM_ME_OPEN_EVENT, pauseForCalmMe)
+    return () => window.removeEventListener(CALM_ME_OPEN_EVENT, pauseForCalmMe)
+  }, [stopSession])
 
   const handleChangeLevel = useCallback(async () => {
     await stopSession('ended')
@@ -831,6 +842,7 @@ export default function App() {
   return (
     <PipecatClientProvider client={client}>
       <RehearsalView />
+      <CalmMe />
     </PipecatClientProvider>
   )
 }

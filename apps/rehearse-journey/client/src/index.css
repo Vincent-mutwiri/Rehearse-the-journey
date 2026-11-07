@@ -228,3 +228,74 @@ button { min-height: 44px; }
   .welcome-reassurances { flex-direction: column; }
   .scenario-coming { font-size: 9px; }
 }
+
+/* Calm Me: persistent, reassuring output-only support. */
+.calm-me-button {
+  position: fixed;
+  z-index: 30;
+  top: max(24px, env(safe-area-inset-top));
+  right: max(28px, env(safe-area-inset-right));
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 17px;
+  border: 1px solid color-mix(in oklab, var(--lavender) 55%, var(--ink));
+  border-radius: 9999px;
+  background: var(--mist);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  box-shadow: 0 5px 18px color-mix(in oklab, var(--ink) 13%, transparent);
+  cursor: pointer;
+}
+.calm-me-button svg { width: 19px; height: 19px; color: #526d5a; }
+.calm-me-button:hover { background: color-mix(in oklab, var(--mist) 75%, var(--peach)); }
+.calm-me-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in oklab, var(--ink) 38%, transparent);
+}
+.calm-me-dialog {
+  width: min(100%, 560px);
+  max-height: min(720px, calc(100dvh - 48px));
+  overflow: auto;
+  padding: clamp(24px, 5vw, 40px);
+  border: 1px solid color-mix(in oklab, var(--lavender) 45%, var(--ink));
+  border-radius: 24px;
+  background: var(--cream);
+  color: var(--ink);
+  box-shadow: 0 20px 60px color-mix(in oklab, var(--ink) 25%, transparent);
+}
+.calm-me-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.calm-me-eyebrow { margin: 0 0 4px; color: #655e76; font-size: 12px; font-weight: 600; }
+.calm-me-dialog h2 { margin: 0; font-size: clamp(28px, 5vw, 38px); font-weight: 600; letter-spacing: -1px; }
+.calm-me-icon-button { display: grid; place-items: center; min-width: 44px; padding: 9px; border: 1px solid var(--mist); border-radius: 9999px; background: transparent; color: var(--ink); cursor: pointer; }
+.calm-me-icon-button svg { width: 20px; height: 20px; }
+.calm-me-intro, .calm-me-support { color: #655e76; }
+.calm-me-intro { margin: 20px 0 0; }
+.calm-me-current { min-height: 2.6em; margin: 30px 0 16px; font-size: clamp(26px, 5vw, 42px); font-weight: 600; line-height: 1.18; letter-spacing: -1px; }
+.calm-me-support { margin: 0; font-size: 14px; }
+.calm-me-warning { padding: 12px 14px; border-left: 4px solid var(--peach); background: #fffdfa; font-size: 13px; }
+.calm-me-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.calm-me-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 48px; padding: 10px 15px; border-radius: 9999px; cursor: pointer; }
+.calm-me-controls svg { width: 17px; height: 17px; }
+.calm-me-end { border: 1px solid var(--ink); background: var(--ink); color: var(--cream); font-weight: 650; }
+.calm-me-secondary { border: 1px solid color-mix(in oklab, var(--ink) 20%, transparent); background: var(--mist); color: var(--ink); }
+.calm-me-secondary:disabled { cursor: not-allowed; opacity: .55; }
+.calm-me-settings { display: grid; gap: 14px; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--mist); }
+.calm-me-settings label { display: grid; grid-template-columns: minmax(125px, 1fr) 1.6fr; align-items: center; gap: 12px; font-size: 13px; font-weight: 550; }
+.calm-me-settings label:first-child { display: flex; }
+.calm-me-settings input[type="range"] { width: 100%; accent-color: var(--lavender); }
+.calm-me-settings select { min-height: 42px; padding: 7px 10px; border: 1px solid var(--mist); border-radius: 10px; background: #fffdfa; color: var(--ink); }
+.calm-me-privacy { margin: 24px 0 0; color: #655e76; font-size: 12px; line-height: 1.6; }
+@media (max-width: 700px) {
+  .calm-me-button { top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); padding: 10px 13px; }
+  .calm-me-backdrop { align-items: end; padding: 12px; }
+  .calm-me-dialog { max-height: calc(100dvh - 24px); border-radius: 22px; padding: 24px 20px max(24px, env(safe-area-inset-bottom)); }
+  .calm-me-settings label { grid-template-columns: 1fr; gap: 6px; }
+}

@@ -89,7 +89,7 @@ export default function CalmMe() {
       const next = index + 1
       setCountIndex(next)
         speech.speak(DECOMPRESS_COUNTS[next], 1.1, () => advanceCount(next, session), speech.nextToken())
-    }, 600)
+    }, 400)
   }, [speech])
 
   const beginSequence = useCallback((index: number) => {
@@ -106,7 +106,7 @@ export default function CalmMe() {
         setCountIndex(0)
         setStatus('counting')
         speech.speak(DECOMPRESS_COUNTS[0], 1.1, () => advanceCount(0, session), speech.nextToken())
-      }, 600)
+      }, 400)
     }, token)
   }, [advanceCount, speech])
 

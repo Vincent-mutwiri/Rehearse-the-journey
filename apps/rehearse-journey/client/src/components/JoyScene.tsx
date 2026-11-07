@@ -6,6 +6,7 @@ import {
   Bone,
   BufferAttribute,
   BufferGeometry,
+  CapsuleGeometry,
   Color,
   Float32BufferAttribute,
   Group,
@@ -17,22 +18,35 @@ import {
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   NumberKeyframeTrack,
+  Object3D,
   Skeleton,
   SkinnedMesh,
   SphereGeometry,
   SplineCurve,
-  Uint16BufferAttribute,
+  TorusGeometry,
   Vector2,
-  VectorKeyframeTrack,
 } from 'three'
 import type { JoyState } from './JoyMascot'
 
 interface SceneProps { state: JoyState; encourageSignal: number; still: boolean }
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  1. Necked Lathe Torso (3-bone smoothstep skinning)
- *  from user-provided drop-in, extended with geometries tracking & translate
- * ──────────────────────────────────────────────────────────────────────── */
+// Skinned geometry uses root rest space; features use head-local space.
+const HEAD_R = 0.46
+const HEAD_SCALE = [1.03, 0.98, 0.98] as const
+const SHOULDER_X = 0.31
+const SHOULDER_Y = 0.96
+const UPPER_ARM_LENGTH = 0.20
+const FOREARM_LENGTH = 0.20
+const ARM_LENGTH = UPPER_ARM_LENGTH + FOREARM_LENGTH
+
+function placeOnHead(obj: Object3D, x: number, y: number, extraZ = 0.012) {
+  const nx = x / (HEAD_R * HEAD_SCALE[0])
+  const ny = y / (HEAD_R * HEAD_SCALE[1])
+  const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny))
+  obj.position.set(x, y, nz * HEAD_R * HEAD_SCALE[2] + extraZ)
+}
+
+/* ── Fix 2: Balanced chibi torso, seam on back, welded normals ── */
 export interface TorsoBuildConfig {
   hipsBoneIndex: number
   chestBoneIndex: number
@@ -44,29 +58,50 @@ export function createNeckedTorsoGeometry(config: TorsoBuildConfig): LatheGeomet
   const { hipsBoneIndex, chestBoneIndex, neckBoneIndex, geometries } = config
 
   const profilePoints = [
-    new Vector2(0.001, -0.55),
-    new Vector2(0.32, -0.50),
-    new Vector2(0.46, -0.28),
-    new Vector2(0.42, 0.02),
-    new Vector2(0.44, 0.22),
-    new Vector2(0.31, 0.38),
-    new Vector2(0.18, 0.46),
-    new Vector2(0.17, 0.58),
-    new Vector2(0.001, 0.60),
+    new Vector2(0.001, 0.36),
+    new Vector2(0.24, 0.39),
+    new Vector2(0.35, 0.56),
+    new Vector2(0.31, 0.76),
+    new Vector2(0.33, 0.92),
+    new Vector2(0.22, 1.04),
+    new Vector2(0.13, 1.10),
+    new Vector2(0.13, 1.20),
+    new Vector2(0.001, 1.24),
   ]
 
   const spline = new SplineCurve(profilePoints)
-  const sampled = spline.getPoints(32)
-  const geo = new LatheGeometry(sampled, 36)
+  const points = spline.getPoints(36)
+  const segments = 40
+  const geo = new LatheGeometry(points, segments)
+
+  // Seam to back so belly is seamless
+  geo.rotateY(Math.PI)
   geo.computeVertexNormals()
+
+  // Weld seam normals (col 0 and col segments)
+  const norm = geo.attributes.normal
+  const ringStride = points.length // 37
+  const lastRingStart = segments * ringStride
+  for (let r = 0; r < ringStride; r++) {
+    const i0 = r
+    const iLast = lastRingStart + r
+    if (iLast < norm.count) {
+      const nx = (norm.getX(i0) + norm.getX(iLast)) * 0.5
+      const ny = (norm.getY(i0) + norm.getY(iLast)) * 0.5
+      const nz = (norm.getZ(i0) + norm.getZ(iLast)) * 0.5
+      norm.setXYZ(i0, nx, ny, nz)
+      norm.setXYZ(iLast, nx, ny, nz)
+    }
+  }
+  norm.needsUpdate = true
 
   const pos = geo.attributes.position
   const vertexCount = pos.count
   const skinIndices = new Uint16Array(vertexCount * 4)
   const skinWeights = new Float32Array(vertexCount * 4)
 
-  const yMin = -0.55
-  const yMax = 0.60
+  const yMin = 0.36
+  const yMax = 1.24
   const ySpan = yMax - yMin
 
   const smoothstep = (t: number) => {
@@ -97,7 +132,6 @@ export function createNeckedTorsoGeometry(config: TorsoBuildConfig): LatheGeomet
     skinIndices[idx4 + 1] = chestBoneIndex
     skinIndices[idx4 + 2] = neckBoneIndex
     skinIndices[idx4 + 3] = 0
-
     skinWeights[idx4] = wHips
     skinWeights[idx4 + 1] = wChest
     skinWeights[idx4 + 2] = wNeck
@@ -111,9 +145,53 @@ export function createNeckedTorsoGeometry(config: TorsoBuildConfig): LatheGeomet
   return geo
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  2. Procedural Morph-Target Mouth
- * ──────────────────────────────────────────────────────────────────────── */
+/* ── Fix 3: Seamless skinned capsule arms (no bicep bulge) ── */
+export function createSeamlessSkinnedArm(
+  side: 'L' | 'R',
+  upperArmBoneIndex: number,
+  forearmBoneIndex: number,
+  geometries: BufferGeometry[],
+): BufferGeometry {
+  const armLength = ARM_LENGTH
+  const geo = new CapsuleGeometry(0.072, armLength, 10, 20)
+  geo.translate(0, -armLength * 0.5, 0)
+
+  const pos = geo.attributes.position
+  const count = pos.count
+  const skinIndices = new Uint16Array(count * 4)
+  const skinWeights = new Float32Array(count * 4)
+
+  const elbowY = -UPPER_ARM_LENGTH
+
+  for (let i = 0; i < count; i++) {
+    const y = pos.getY(i)
+    const taper = MathUtils.clamp(-y / armLength, 0, 1)
+    const scaleXZ = MathUtils.lerp(1.06, 0.90, taper)
+    pos.setX(i, pos.getX(i) * scaleXZ)
+    pos.setZ(i, pos.getZ(i) * scaleXZ)
+
+    const rawT = (elbowY - y) / (armLength * 0.35) + 0.5
+    const c = MathUtils.clamp(rawT, 0, 1)
+    const wForearm = c * c * (3 - 2 * c)
+    const wUpper = 1 - wForearm
+
+    const idx4 = i * 4
+    skinIndices[idx4] = upperArmBoneIndex
+    skinIndices[idx4 + 1] = forearmBoneIndex
+    skinWeights[idx4] = wUpper
+    skinWeights[idx4 + 1] = wForearm
+  }
+
+  geo.translate(side === 'L' ? -SHOULDER_X : SHOULDER_X, SHOULDER_Y, 0)
+  geo.computeVertexNormals()
+  geo.setAttribute('skinIndex', new BufferAttribute(skinIndices, 4))
+  geo.setAttribute('skinWeight', new BufferAttribute(skinWeights, 4))
+
+  geometries.push(geo)
+  return geo
+}
+
+/* ── Fix 1: Mouth stays proud of skin, outward morphs ── */
 export interface MouthMorphRig {
   mesh: Mesh
   setSmile: (v: number) => void
@@ -142,7 +220,8 @@ export function createProceduralMorphMouth(
     const x = ux * halfWidth
     const cornerTaper = 1 - 0.35 * (ux * ux)
     const y = uy * halfHeight * cornerTaper
-    const surfaceWrapZ = -((x * x) / (2 * headRadius))
+    // FIX: +0.014 keeps mouth proud of skin, not submerged
+    const surfaceWrapZ = -(x * x) / (2 * headRadius) + 0.014
     const z = uz * halfDepth + surfaceWrapZ
 
     pos.setXYZ(i, x, y, z)
@@ -161,10 +240,11 @@ export function createProceduralMorphMouth(
     const normY = y / halfHeight
     const x2 = normX * normX
 
+    // FIX: corners lift but stay +Z slightly, not -0.006 sink
     const smileLift = x2 * 0.026 + (normY > 0 ? -0.003 : 0.004) * (1 - x2)
     const smileX = x * 1.16
     const smileY = y + smileLift
-    const smileZ = z - x2 * 0.006
+    const smileZ = z - x2 * 0.002
 
     smilePositions[i * 3] = smileX
     smilePositions[i * 3 + 1] = smileY
@@ -174,7 +254,8 @@ export function createProceduralMorphMouth(
     const openSpread = normY >= 0 ? normY * 0.022 * centerWeight : normY * 0.048 * centerWeight
     const openX = x * 0.94
     const openY = y + openSpread
-    const openZ = z + (normY < 0 ? -0.005 * centerWeight : 0)
+    // FIX: keep open slightly outward, not fully inward
+    const openZ = z + (normY < 0 ? 0.002 * centerWeight : 0.001 * centerWeight)
 
     openPositions[i * 3] = openX
     openPositions[i * 3 + 1] = openY
@@ -216,9 +297,7 @@ export function createProceduralMorphMouth(
   }
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  3. Saccadic Eye, Blink & Asymmetric Brow Controller (adapted)
- * ──────────────────────────────────────────────────────────────────────── */
+/* ── Fix 5: Saccadic gaze + hemisphere eyelids + torus brows ── */
 type SimpleJoyState = 'idle' | 'listening' | 'speaking'
 interface Rest {
   eyeLX: number
@@ -256,7 +335,6 @@ class ExpressiveFaceController {
   private curOpen = 0
   private curOoh = 0
   private curSquint = 0
-
   private curBrowRaiseL = 0
   private curBrowRaiseR = 0
   private curBrowTiltL = 0
@@ -272,7 +350,6 @@ class ExpressiveFaceController {
   ): number {
     const damp = MathUtils.damp
     if (still) {
-      // freeze but keep a gentle smile
       nodes.mouth.setSmile(0.62)
       nodes.mouth.setOpen(0.02)
       nodes.mouth.setOoh(0)
@@ -281,16 +358,15 @@ class ExpressiveFaceController {
 
     let blinkEnv = 0
 
-    // ── Saccades
     if (t >= this.nextSaccadeTime) {
       if (state === 'listening') {
         this.targetGazeX = (Math.random() - 0.5) * 0.016
         this.targetGazeY = (Math.random() - 0.5) * 0.01
         this.nextSaccadeTime = t + 1.4 + Math.random() * 2.2
       } else if (state === 'speaking') {
-        const glanceAway = Math.random() < 0.28
-        this.targetGazeX = glanceAway ? (Math.random() - 0.5) * 0.048 : (Math.random() - 0.5) * 0.018
-        this.targetGazeY = glanceAway ? 0.018 + Math.random() * 0.015 : (Math.random() - 0.5) * 0.012
+        const away = Math.random() < 0.28
+        this.targetGazeX = away ? (Math.random() - 0.5) * 0.048 : (Math.random() - 0.5) * 0.018
+        this.targetGazeY = away ? 0.018 + Math.random() * 0.015 : (Math.random() - 0.5) * 0.012
         this.nextSaccadeTime = t + 0.65 + Math.random() * 1.4
       } else {
         this.targetGazeX = (Math.random() - 0.5) * 0.042
@@ -305,20 +381,16 @@ class ExpressiveFaceController {
     this.curGazeX = damp(this.curGazeX, this.targetGazeX + ptrX, 22, dt)
     this.curGazeY = damp(this.curGazeY, this.targetGazeY + ptrY, 22, dt)
 
-    nodes.eyeL.position.x = nodes.rest.eyeLX + this.curGazeX
-    nodes.eyeR.position.x = nodes.rest.eyeRX + this.curGazeX
-    nodes.eyeL.position.y = nodes.rest.eyeY + this.curGazeY
-    nodes.eyeR.position.y = nodes.rest.eyeY + this.curGazeY
-    nodes.highlightL.position.x = nodes.eyeL.position.x - 0.018
-    nodes.highlightR.position.x = nodes.eyeR.position.x - 0.018
-    nodes.highlightL.position.y = nodes.eyeL.position.y + 0.028
-    nodes.highlightR.position.y = nodes.eyeR.position.y + 0.028
+    placeOnHead(nodes.eyeL, nodes.rest.eyeLX + this.curGazeX, nodes.rest.eyeY + this.curGazeY, 0.010)
+    placeOnHead(nodes.eyeR, nodes.rest.eyeRX + this.curGazeX, nodes.rest.eyeY + this.curGazeY, 0.010)
+    for (const [eye, highlight] of [[nodes.eyeL, nodes.highlightL], [nodes.eyeR, nodes.highlightR]]) {
+      highlight.position.set(eye.position.x - 0.018, eye.position.y + 0.028, eye.position.z + 0.046)
+    }
 
-    // ── Blink + friendly tilt
     if (t >= this.nextBlinkTime && this.blinkStart < 0) {
       this.blinkStart = t
-      const isDoubleBlink = Math.random() < 0.15
-      this.nextBlinkTime = t + (isDoubleBlink ? 0.26 : 2.8 + Math.random() * 3.2)
+      const dbl = Math.random() < 0.15
+      this.nextBlinkTime = t + (dbl ? 0.26 : 2.8 + Math.random() * 3.2)
     }
 
     if (this.blinkStart >= 0) {
@@ -327,26 +399,27 @@ class ExpressiveFaceController {
       else blinkEnv = Math.sin(p * Math.PI)
     }
 
-    const targetSquint = state === 'listening' ? 0.14 : state === 'speaking' ? 0.06 : 0.0
+    const targetSquint = state === 'listening' ? 0.14 : state === 'speaking' ? 0.06 : 0
     this.curSquint = damp(this.curSquint, targetSquint, 10, dt)
-
     const lidClosure = Math.min(1, blinkEnv + this.curSquint)
-    const lidScaleY = MathUtils.lerp(0.075, 0.22, lidClosure)
-    const eyeScaleY = MathUtils.lerp(0.092, 0.012, blinkEnv)
 
-    nodes.lidL.scale.y = lidScaleY
-    nodes.lidR.scale.y = lidScaleY
-    nodes.lidL.position.y = nodes.rest.lidY - lidClosure * 0.032 + this.curGazeY * 0.35
-    nodes.lidR.position.y = nodes.rest.lidY - lidClosure * 0.032 + this.curGazeY * 0.35
+    // FIX 5: Rotate hemisphere lids on X instead of scaling Y
+    // Open = -0.65 (cute crease), closed = +0.15
+    const lidRotX = MathUtils.lerp(-0.65, 0.15, lidClosure)
+    nodes.lidL.rotation.x = lidRotX
+    nodes.lidR.rotation.x = lidRotX
+    // slight outer lift for friendly look
     nodes.lidL.rotation.z = 0.06
     nodes.lidR.rotation.z = -0.06
+    placeOnHead(nodes.lidL, nodes.eyeL.position.x, nodes.rest.lidY - lidClosure * 0.012 + this.curGazeY, 0.012)
+    placeOnHead(nodes.lidR, nodes.eyeR.position.x, nodes.rest.lidY - lidClosure * 0.012 + this.curGazeY, 0.012)
 
+    const eyeScaleY = MathUtils.lerp(0.093, 0.012, blinkEnv)
     nodes.eyeL.scale.y = eyeScaleY
     nodes.eyeR.scale.y = eyeScaleY
     nodes.highlightL.visible = blinkEnv < 0.65
     nodes.highlightR.visible = blinkEnv < 0.65
 
-    // ── Brows asymmetric
     let targetBrowRaiseL = 0.008
     let targetBrowRaiseR = 0.008
     let targetBrowTiltL = 0.12
@@ -358,9 +431,9 @@ class ExpressiveFaceController {
       targetBrowTiltL = 0.20
       targetBrowTiltR = -0.14
     } else if (state === 'speaking') {
-      const cadencePulse = Math.sin(t * 4.2) * 0.012 + Math.sin(t * 2.1) * 0.008
-      targetBrowRaiseL = 0.018 + cadencePulse * 1.15
-      targetBrowRaiseR = 0.016 + cadencePulse * 0.85
+      const cadence = Math.sin(t * 4.2) * 0.012 + Math.sin(t * 2.1) * 0.008
+      targetBrowRaiseL = 0.018 + cadence * 1.15
+      targetBrowRaiseR = 0.016 + cadence * 0.85
       targetBrowTiltL = 0.16
       targetBrowTiltR = -0.16
     }
@@ -370,25 +443,24 @@ class ExpressiveFaceController {
     this.curBrowTiltL = damp(this.curBrowTiltL, targetBrowTiltL, 8, dt)
     this.curBrowTiltR = damp(this.curBrowTiltR, targetBrowTiltR, 8, dt)
 
-    nodes.browL.position.y = nodes.rest.browY + this.curBrowRaiseL
-    nodes.browR.position.y = nodes.rest.browY + this.curBrowRaiseR
+    placeOnHead(nodes.browL, -0.15, nodes.rest.browY + this.curBrowRaiseL, 0.018)
+    placeOnHead(nodes.browR, 0.15, nodes.rest.browY + this.curBrowRaiseR, 0.018)
     nodes.browL.rotation.z = this.curBrowTiltL
     nodes.browR.rotation.z = this.curBrowTiltR
 
-    // ── Mouth morphs
     let targetSmile = 0.62
-    let targetOpen = 0.0
-    let targetOoh = 0.0
+    let targetOpen = 0
+    let targetOoh = 0
 
     if (state === 'listening') {
       targetSmile = 0.78
       targetOpen = 0.04
     } else if (state === 'speaking') {
-      const syllableWave = Math.max(0, Math.sin(t * 15.5) * 0.65 + Math.sin(t * 7.3) * 0.45)
-      const vowelAlternation = Math.max(0, Math.sin(t * 3.8))
-      targetSmile = 0.42 + (1 - vowelAlternation) * 0.35
-      targetOpen = syllableWave * (0.85 - vowelAlternation * 0.3)
-      targetOoh = syllableWave * vowelAlternation * 0.65
+      const syll = Math.max(0, Math.sin(t * 15.5) * 0.65 + Math.sin(t * 7.3) * 0.45)
+      const vowel = Math.max(0, Math.sin(t * 3.8))
+      targetSmile = 0.42 + (1 - vowel) * 0.35
+      targetOpen = syll * (0.85 - vowel * 0.3)
+      targetOoh = syll * vowel * 0.65
     }
 
     this.curSmile = damp(this.curSmile, targetSmile, 12, dt)
@@ -408,14 +480,11 @@ class ExpressiveFaceController {
   }
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  Main Rig — 11 bones: hips, spine, chest, neck, head, upper L/R, forearm L/R, foot L/R
- * ──────────────────────────────────────────────────────────────────────── */
+/* ── Main rig ── */
 function buildRig() {
   const root = new Group()
   root.name = 'joyRoot'
 
-  // Materials — physical with sheen for faux subsurface (zero download)
   const lavender = new MeshPhysicalMaterial({
     color: '#a89bd4',
     roughness: 0.58,
@@ -430,7 +499,6 @@ function buildRig() {
     sheen: 0.35,
     sheenRoughness: 0.6,
     sheenColor: new Color('#ffccbb'),
-    transparent: false,
   })
   const ink = new MeshStandardMaterial({ color: '#3a3550', roughness: 0.48 })
   const sage = new MeshStandardMaterial({ color: '#8fb39b', roughness: 0.65 })
@@ -465,58 +533,79 @@ function buildRig() {
     return b
   }
 
-  // ── 11 bones ──
-  const hips = joint('hips', root, [0, 0.62, 0])
-  const spine = joint('spine', hips, [0, 0.30, 0])
-  const chest = joint('chest', spine, [0, 0.30, 0])
-  const neck = joint('neck', chest, [0, 0.34, 0])
-  const head = joint('head', neck, [0, 0.18, 0])
-  const upperArmL = joint('upperArm.L', chest, [-0.44, -0.04, 0])
-  const forearmL = joint('forearm.L', upperArmL, [0, -0.36, 0])
-  const upperArmR = joint('upperArm.R', chest, [0.44, -0.04, 0])
-  const forearmR = joint('forearm.R', upperArmR, [0, -0.36, 0])
-  const footL = joint('foot.L', hips, [-0.30, -0.46, 0.05])
-  const footR = joint('foot.R', hips, [0.30, -0.46, 0.05])
+  const hips = joint('hips', root, [0, 0.52, 0])
+  const spine = joint('spine', hips, [0, 0.16, 0])
+  const chest = joint('chest', spine, [0, 0.20, 0])
+  const neck = joint('neck', chest, [0, 0.22, 0])
+  const head = joint('head', neck, [0, 0.36, 0])
+  const upperArmL = joint('upperArm.L', chest, [-SHOULDER_X, 0.08, 0])
+  const forearmL = joint('forearm.L', upperArmL, [0, -UPPER_ARM_LENGTH, 0])
+  const upperArmR = joint('upperArm.R', chest, [SHOULDER_X, 0.08, 0])
+  const forearmR = joint('forearm.R', upperArmR, [0, -UPPER_ARM_LENGTH, 0])
+  const footL = joint('foot.L', root, [-0.17, 0.09, 0])
+  const footR = joint('foot.R', root, [0.17, 0.09, 0])
 
   const skeleton = new Skeleton([hips, spine, chest, neck, head, upperArmL, forearmL, upperArmR, forearmR, footL, footR])
 
-  // ── Torso: lathe silhouette hips→neck ──
+  // Torso — taller chibi, seam on back
   const torsoGeo = createNeckedTorsoGeometry({ hipsBoneIndex: 0, chestBoneIndex: 2, neckBoneIndex: 3, geometries })
-  // Position raw profile (-0.55..0.60) to sit between hips and neck
-  torsoGeo.translate(0, 1.06, 0)
   const torsoMesh = new SkinnedMesh(torsoGeo, lavender)
   torsoMesh.name = 'torso'
   torsoMesh.frustumCulled = false
   root.add(torsoMesh)
+
+  const headGeo = new SphereGeometry(HEAD_R, 36, 32)
+  geometries.push(headGeo)
+  const headMesh = new Mesh(headGeo, lavender)
+  headMesh.name = 'headMesh'
+  headMesh.scale.set(...HEAD_SCALE)
+  headMesh.frustumCulled = false
+  head.add(headMesh)
+
+  const sproutGroup = new Group()
+  sproutGroup.name = 'sprout'
+  sproutGroup.position.set(0, HEAD_R * 0.97, 0)
+  head.add(sproutGroup)
+  const leafL = orb(sproutGroup, sage, [-0.055, 0.055, 0], [0.042, 0.105, 0.025], 'leaf.L')
+  const leafR = orb(sproutGroup, sage, [0.055, 0.065, 0], [0.042, 0.115, 0.025], 'leaf.R')
+  leafL.rotation.z = 0.65
+  leafR.rotation.z = -0.65
+
+  const legGeo = new CapsuleGeometry(0.088, 0.22, 8, 16)
+  geometries.push(legGeo)
+  for (const [foot, name] of [[footL, 'L'], [footR, 'R']] as const) {
+    const leg = new Mesh(legGeo, lavender)
+    leg.position.set(0, 0.18, 0)
+    leg.name = `leg.${name}`
+    leg.frustumCulled = false
+    foot.add(leg)
+    orb(foot, peach, [0, 0, 0.06], [0.14, 0.09, 0.20], `shoe.${name}`)
+  }
+
+  const leftArmMesh = new SkinnedMesh(createSeamlessSkinnedArm('L', 5, 6, geometries), lavender)
+  const rightArmMesh = new SkinnedMesh(createSeamlessSkinnedArm('R', 7, 8, geometries), lavender)
+  leftArmMesh.name = 'arm.L.seamless'
+  rightArmMesh.name = 'arm.R.seamless'
+  leftArmMesh.frustumCulled = rightArmMesh.frustumCulled = false
+  root.add(leftArmMesh, rightArmMesh)
+
+  // Bind every mesh in root rest space with straight bones, before animation.
   root.updateMatrixWorld(true)
-  torsoMesh.bind(skeleton)
+  skeleton.calculateInverses()
+  for (const mesh of [torsoMesh, leftArmMesh, rightArmMesh]) mesh.bind(skeleton)
 
-  // Head volume (slightly bigger, friendly)
-  const headMesh = orb(head, lavender, [0, 0, 0], [0.84, 0.74, 0.66], 'headMesh')
+  const leftHand = orb(forearmL, peach, [0, -FOREARM_LENGTH, 0], [0.095, 0.10, 0.095], 'hand.L')
+  const rightHand = orb(forearmR, peach, [0, -FOREARM_LENGTH, 0], [0.095, 0.10, 0.095], 'hand.R')
 
-  // Feet
-  orb(footL, peach, [0, -0.08, 0.13], [0.26, 0.19, 0.37], 'foot.L')
-  orb(footR, peach, [0, -0.08, 0.13], [0.26, 0.19, 0.37], 'foot.R')
-
-  // Segmented arms — elbow bends
-  const leftUpper = orb(upperArmL, lavender, [0, -0.14, 0], [0.18, 0.30, 0.18], 'upper.L')
-  const leftFore = orb(forearmL, lavender, [0, -0.14, 0], [0.15, 0.28, 0.15], 'fore.L')
-  const rightUpper = orb(upperArmR, lavender, [0, -0.14, 0], [0.18, 0.30, 0.18], 'upper.R')
-  const rightFore = orb(forearmR, lavender, [0, -0.14, 0], [0.15, 0.28, 0.15], 'fore.R')
-
-  const leftHand = orb(forearmL, peach, [0, -0.44, 0.02], [0.14, 0.14, 0.14], 'hand.L')
-  const rightHand = orb(forearmR, peach, [0, -0.44, 0.02], [0.14, 0.14, 0.14], 'hand.R')
-
-  // Eyes, lids, brows, blush
+  // Fix 5: 3D curved brows (Torus arc) + hemisphere eyelids
   const eyes: Mesh[] = []
   const highlights: Mesh[] = []
   const lids: Mesh[] = []
   const brows: Mesh[] = []
 
-  // Use spherical patches for blush that hug head curvature
   const blushMats: MeshPhysicalMaterial[] = []
-  const blushMeshes: Mesh[] = []
-  ;[-0.32, 0.32].forEach((x, idx) => {
+
+  ;[-0.23, 0.23].forEach((x, idx) => {
     const mat = new MeshPhysicalMaterial({
       color: '#f4c6a6',
       roughness: 0.8,
@@ -528,40 +617,39 @@ function buildRig() {
     })
     blushMats.push(mat)
     materials.push(mat)
-    const g = new SphereGeometry(0.09, 16, 12, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.45)
+    const g = new SphereGeometry(1, 20, 16)
     geometries.push(g)
     const m = new Mesh(g, mat)
-    m.position.set(x, -0.10, 0.52)
-    m.rotation.y = x > 0 ? -0.6 : 0.6
-    m.rotation.x = 0.12
-    m.scale.set(0.9, 0.6, 0.5)
+    placeOnHead(m, x, -0.06, 0.008)
+    m.rotation.y = x > 0 ? 0.42 : -0.42
+    m.scale.set(0.075, 0.038, 0.014)
     m.name = `blush.${idx === 0 ? 'L' : 'R'}`
     m.frustumCulled = false
     head.add(m)
-    blushMeshes.push(m)
   })
 
   const sides: Array<{ x: number; name: string }> = [
-    { x: -0.26, name: 'L' },
-    { x: 0.26, name: 'R' },
+    { x: -0.145, name: 'L' },
+    { x: 0.145, name: 'R' },
   ]
 
   sides.forEach(({ x, name }) => {
-    orb(head, peach, [x * 1.5, -0.12, 0.50], [0.15, 0.088, 0.055], `socket.${name}`)
-    const eye = orb(head, ink, [x, 0.10, 0.58], [0.069, 0.093, 0.05], `eye.${name}`)
-    const hl = orb(head, white, [x - 0.018, 0.128, 0.615], [0.019, 0.024, 0.011], `hl.${name}`)
-    // Lid as spherical patch hugging head
-    const lidGeo = new SphereGeometry(0.095, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55)
+    const eye = orb(head, ink, [0, 0, 0], [0.055, 0.093, 0.05], `eye.${name}`)
+    placeOnHead(eye, x, 0.03, 0.010)
+    const hl = orb(head, white, [x - 0.018, 0.058, eye.position.z + 0.046], [0.015, 0.020, 0.011], `hl.${name}`)
+
+    // Hemisphere eyelid cap that rotates on X
+    const eyeRadius = 0.08
+    const lidGeo = new SphereGeometry(eyeRadius * 1.18, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.52)
     geometries.push(lidGeo)
     const lidMat = lavender.clone() as MeshPhysicalMaterial
     lidMat.polygonOffset = true
-    lidMat.polygonOffsetFactor = -1
-    lidMat.transparent = false
+    lidMat.polygonOffsetFactor = -2
     materials.push(lidMat)
     const lid = new Mesh(lidGeo, lidMat)
-    lid.position.set(x, 0.20, 0.585)
-    lid.scale.set(1.5, 0.85, 0.65)
-    lid.rotation.x = -0.15
+    placeOnHead(lid, x, 0.03, 0.012)
+    lid.rotation.x = -0.65 // open crease
+    lid.scale.set(0.72, 1.05, 0.65)
     lid.name = `lid.${name}`
     lid.frustumCulled = false
     head.add(lid)
@@ -571,42 +659,54 @@ function buildRig() {
     lids.push(lid)
   })
 
-  const browL = orb(head, sage, [-0.14, 0.70, 0.06], [0.26, 0.105, 0.11], 'brow.L')
-  const browR = orb(head, sage, [0.14, 0.74, 0.06], [0.25, 0.11, 0.11], 'brow.R')
-  browL.rotation.z = -0.42
-  browR.rotation.z = 0.52
-  brows.push(browL, browR)
+  // Torus brows - proud 3D relief
+  sides.forEach(({ x, name }) => {
+    const browGeo = new TorusGeometry(0.065, 0.012, 10, 18, Math.PI * 0.58)
+    browGeo.rotateZ(Math.PI * 0.21)
+    browGeo.translate(0, -0.055, 0)
+    geometries.push(browGeo)
+    const brow = new Mesh(browGeo, sage)
+    // Position proudly above eye, surfaceZ + 0.018
+    placeOnHead(brow, x > 0 ? 0.15 : -0.15, 0.135, 0.018)
+    brow.rotation.x = Math.PI * 0.12
+    brow.rotation.y = x > 0 ? -0.18 : 0.18
+    brow.rotation.z = x > 0 ? 0.52 : -0.42
+    brow.name = `brow.${name}`
+    brow.frustumCulled = false
+    head.add(brow)
+    brows.push(brow)
+  })
 
-  // Morph mouth
+  // Fix 1: Mouth projection to surface +0.008
   const mouthMat = new MeshStandardMaterial({ color: '#3a3550', roughness: 0.5 })
   materials.push(mouthMat)
-  const mouthRig = createProceduralMorphMouth(mouthMat, geometries, 0.48)
-  mouthRig.mesh.position.set(0, -0.16, 0.605)
+  const mouthRig = createProceduralMorphMouth(mouthMat, geometries, HEAD_R * HEAD_SCALE[2])
+  placeOnHead(mouthRig.mesh, 0, -0.105, 0.012)
   mouthRig.mesh.rotation.x = 0.08
   mouthRig.mesh.name = 'mouthMorph'
   head.add(mouthRig.mesh)
 
-  // ── Animation: breathe clip with phase-delayed tracks ──
+  // Breathe clip with phase-delayed shoulder rise
   const breathTimes = [0, 1.25, 2.5]
-  const breathTimesDelayed = [0.25, 1.5, 2.75]
+  const breathDelayed = [0.25, 1.5, 2.75]
 
   const chestZ = [0, 0.028, 0]
   const neckX = [0, 0.016, 0]
-  const shoulderRiseL = [0, 0.012, 0]
-  const shoulderRiseR = [0, 0.012, 0]
-  const chestScaleX = [1, 1.025, 1]
-  const chestScaleZ = [1, 1.02, 1]
+  const upperL = [0, 0.012, 0]
+  const upperR = [0, 0.012, 0]
+  const scaleX = [1, 1.025, 1]
+  const scaleZ = [1, 1.02, 1]
 
-  const chestTrack = new NumberKeyframeTrack('chest.rotation[z]', breathTimes, chestZ)
-  const neckTrack = new NumberKeyframeTrack('neck.rotation[x]', breathTimesDelayed, neckX)
-  const upperLTrack = new NumberKeyframeTrack('upperArm.L.rotation[z]', breathTimesDelayed, shoulderRiseL)
-  const upperRTrack = new NumberKeyframeTrack('upperArm.R.rotation[z]', breathTimesDelayed, shoulderRiseR)
-  const chestScaleXTrack = new NumberKeyframeTrack('chest.scale[x]', breathTimes, chestScaleX)
-  const chestScaleZTrack = new NumberKeyframeTrack('chest.scale[z]', breathTimes, chestScaleZ)
-
-  ;[chestTrack, neckTrack, upperLTrack, upperRTrack, chestScaleXTrack, chestScaleZTrack].forEach(t => t.setInterpolation(InterpolateSmooth))
-
-  const breatheClip = new AnimationClip('breathe', 2.75, [chestTrack, neckTrack, upperLTrack, upperRTrack, chestScaleXTrack, chestScaleZTrack])
+  const tracks = [
+    new NumberKeyframeTrack('chest.rotation[z]', breathTimes, chestZ),
+    new NumberKeyframeTrack('neck.rotation[x]', breathDelayed, neckX),
+    new NumberKeyframeTrack('upperArm.L.rotation[z]', breathDelayed, upperL),
+    new NumberKeyframeTrack('upperArm.R.rotation[z]', breathDelayed, upperR),
+    new NumberKeyframeTrack('chest.scale[x]', breathTimes, scaleX),
+    new NumberKeyframeTrack('chest.scale[z]', breathTimes, scaleZ),
+  ]
+  tracks.forEach(t => t.setInterpolation(InterpolateSmooth))
+  const breatheClip = new AnimationClip('breathe', 2.75, tracks)
   breatheClip.optimize()
 
   const mixer = new AnimationMixer(root)
@@ -614,7 +714,6 @@ function buildRig() {
   breatheAction.setLoop(LoopRepeat, Infinity)
   breatheAction.play()
 
-  // Face controller
   const faceController = new ExpressiveFaceController()
   const faceNodes: FaceNodes = {
     eyeL: eyes[0],
@@ -625,9 +724,9 @@ function buildRig() {
     lidR: lids[1],
     browL: brows[0],
     browR: brows[1],
-    blushMats: blushMats,
+    blushMats,
     mouth: mouthRig,
-    rest: { eyeLX: -0.26, eyeRX: 0.26, eyeY: 0.10, lidY: 0.20, browY: 0.71 },
+    rest: { eyeLX: -0.145, eyeRX: 0.145, eyeY: 0.03, lidY: 0.03, browY: 0.135 },
   }
 
   return {
@@ -645,17 +744,14 @@ function buildRig() {
     footR,
     torsoMesh,
     headMesh,
-    leftUpper,
-    leftFore,
-    rightUpper,
-    rightFore,
+    leftArmMesh,
+    rightArmMesh,
     leftHand,
     rightHand,
     eyes,
     highlights,
     lids,
     brows,
-    blushMeshes,
     blushMats,
     mouthRig,
     mixer,
@@ -677,9 +773,6 @@ function buildRig() {
   }
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  Character Component
- * ──────────────────────────────────────────────────────────────────────── */
 function Character({ state, encourageSignal, still }: SceneProps) {
   const rig = useMemo(() => buildRig(), [])
   const motion = useRef({
@@ -725,10 +818,9 @@ function Character({ state, encourageSignal, still }: SceneProps) {
       motion.current.nodStart = still ? -100 : motion.current.time
       invalidate()
     }
-  }, [encourageSignal, state, still, invalidate])
+  }, [encourageSignal, still, invalidate])
 
   useEffect(() => {
-    // squash-and-stretch on state change
     if (motion.current.prevState !== state) {
       motion.current.prevState = state
       motion.current.squashStart = motion.current.time
@@ -751,15 +843,12 @@ function Character({ state, encourageSignal, still }: SceneProps) {
 
     if (!still) rig.mixer.update(dt)
 
-    // ── Nod ──
     const nodAge = t - m.nodStart
     const nod = !still && nodAge >= 0 && nodAge < 0.85 ? Math.sin((nodAge / 0.85) * Math.PI) * 0.28 : 0
 
-    // ── Squash-and-stretch impulse ──
     const squashAge = t - m.squashStart
     const squashActive = !still && squashAge >= 0 && squashAge < 0.22
     const squashT = squashActive ? Math.sin((squashAge / 0.22) * Math.PI) : 0
-    // brief vertical squash + horizontal stretch
     const squashScaleY = 1 - squashT * 0.08
     const squashScaleXZ = 1 + squashT * 0.04
 
@@ -770,14 +859,12 @@ function Character({ state, encourageSignal, still }: SceneProps) {
 
     const mapped: SimpleJoyState = isListening ? 'listening' : isTalking ? 'speaking' : 'idle'
 
-    // ── Face controller (saccades, blink, brows, morph mouth) ──
     rig.faceController.update(t, dt, mapped, rig.faceNodes, frameState.pointer, still)
 
-    // ── Body targets ──
     const targets = {
       rootY: still ? 0 : Math.sin(t * 1.1 + m.drift) * 0.018 + Math.sin(t * 2.1) * 0.01,
-      rootRotY: -0.12 + (still ? 0 : Math.sin(t * 0.55 + m.drift) * 0.045 + (isConnecting ? Math.sin(t * 1.6) * 0.08 : 0) + (frameState.pointer?.x ?? 0) * (still ? 0 : 0.05)),
-      rootRotX: (isListening ? -0.03 : 0) + (frameState.pointer?.y ? frameState.pointer.y * (still ? 0 : -0.03) : 0),
+      rootRotY: -0.12 + (still ? 0 : Math.sin(t * 0.55 + m.drift) * 0.045 + (isConnecting ? Math.sin(t * 1.6) * 0.08 : 0) + (frameState.pointer?.x ?? 0) * 0.05),
+      rootRotX: (isListening ? -0.03 : 0) + (frameState.pointer?.y ?? 0) * (still ? 0 : -0.03),
       rootScaleX: squashScaleXZ,
       rootScaleY: squashScaleY,
       rootScaleZ: squashScaleXZ,
@@ -789,14 +876,15 @@ function Character({ state, encourageSignal, still }: SceneProps) {
       chestZ: still ? 0 : Math.sin(t * 0.85) * 0.018 + (isListening ? 0.018 : 0),
       chestX: isListening ? -0.05 : isTalking ? -0.018 : 0,
       neckX: nod * 0.35 + (isListening ? -0.06 : isTalking ? Math.sin(t * 4.8) * 0.02 : 0),
-      neckZ: isListening ? 0.04 : 0, // 35% of listen tilt goes to neck
+      neckZ: isListening ? 0.04 : 0,
       headX: nod * 0.65 + (isTalking && !still ? Math.sin(t * 5) * 0.03 : 0),
       headY: still ? 0 : isConnecting ? Math.sin(t * 1.4) * 0.14 : isTalking ? Math.sin(t * 0.95) * 0.10 : Math.sin(t * 0.38 + m.drift) * 0.12,
-      headZ: isListening ? 0.07 : still ? 0 : Math.sin(t * 0.36) * 0.05, // 65% to head
-      upperLZ: isTalking && !still ? Math.sin(t * 2.2) * 0.16 : -0.02,
-      upperRZ: isEnded ? 2.0 : isTalking && !still ? Math.sin(t * 2.2 + 1) * 0.18 : 0.02,
-      foreLX: isListening ? -0.35 : isTalking ? -0.22 + Math.sin(t * 3.1) * 0.22 : -0.15,
-      foreRX: isEnded ? -0.6 : isListening ? -0.30 : isTalking ? -0.18 + Math.sin(t * 3.1 + 0.8) * 0.18 : -0.12,
+      headZ: isListening ? 0.07 : still ? 0 : Math.sin(t * 0.36) * 0.05,
+      // Fix 3 bonus: gentle human resting bend
+      upperLZ: -0.18 + (isTalking && !still ? Math.sin(t * 2.2) * 0.16 : 0),
+      upperRZ: isEnded ? 2.0 : 0.18 + (isTalking && !still ? Math.sin(t * 2.2 + 1) * 0.18 : 0),
+      foreLX: -0.28 + (isListening ? -0.07 : isTalking ? Math.sin(t * 3.1) * 0.22 : 0),
+      foreRX: isEnded ? -0.6 : -0.28 + (isListening ? -0.02 : isTalking ? Math.sin(t * 3.1 + 0.8) * 0.18 : 0),
     }
 
     if (still) Object.assign(cur, targets)
@@ -824,7 +912,6 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     cur.foreLX = MathUtils.damp(cur.foreLX, targets.foreLX, 8, dt)
     cur.foreRX = MathUtils.damp(cur.foreRX, targets.foreRX, 8, dt)
 
-    // ── Apply (mixer first, then procedural overrides) ──
     rig.root.position.y = cur.rootY
     rig.root.rotation.y = cur.rootRotY
     rig.root.rotation.x = cur.rootRotX
@@ -832,7 +919,6 @@ function Character({ state, encourageSignal, still }: SceneProps) {
 
     rig.hips.scale.set(cur.hipsScaleX, cur.hipsScaleY, cur.hipsScaleZ)
 
-    // Spine / chest / neck keep mixer baseline
     const mixerChestZ = still ? 0 : rig.chest.rotation.z
     const mixerNeckX = still ? 0 : rig.neck.rotation.x
     rig.spine.rotation.x = cur.spineX
@@ -859,14 +945,14 @@ export default function JoyScene(props: SceneProps) {
   return (
     <Canvas
       aria-hidden="true"
-      camera={{ position: [0, 1.58, 5.8], fov: 34 }}
+      camera={{ position: [0, 1.16, 4.4], fov: 34 }}
       dpr={[1, 1.5]}
       frameloop={props.still ? 'demand' : 'always'}
       shadows="percentage"
       gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
       fallback={<span className="joy-placeholder">Joy</span>}
       onCreated={({ camera, gl }) => {
-        camera.lookAt(0, 1.48, 0)
+        camera.lookAt(0, 1.03, 0)
         gl.setClearColor(0x000000, 0)
       }}
     >

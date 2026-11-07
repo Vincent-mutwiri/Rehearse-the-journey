@@ -64,9 +64,27 @@ async def bot(runner_args):
         settings = {"system_instruction": JOY_SYSTEM_PROMPT, "voice": "Aoede"}
         if os.getenv("GEMINI_LIVE_MODEL"):
             settings["model"] = os.environ["GEMINI_LIVE_MODEL"]
+
+        # Lovable team proxy: when GEMINI_PROXY_BASE_URL is set, route the
+        # google-genai Client through it. The proxy expects the key in the
+        # x-goog-api-key header (which is what the Client sends for api_key)
+        # and the v1beta API version. Live uses a WebSocket; the proxy must
+        # support ws/wss for Live to work — if it only proxies REST, Live
+        # fails and the bot should fall back to the OpenAI text path.
+        http_options = None
+        proxy_base = os.getenv("GEMINI_PROXY_BASE_URL")
+        if proxy_base:
+            from google.genai.types import HttpOptions
+            http_options = HttpOptions(
+                base_url=proxy_base,
+                api_version=os.getenv("GEMINI_PROXY_API_VERSION", "v1beta"),
+            )
+            logger.info(f"Routing Gemini through proxy: {proxy_base}")
+
         llm = GeminiLiveLLMService(
             api_key=key,
             settings=GeminiLiveLLMService.Settings(**settings),
+            http_options=http_options,
             inference_on_context_initialization=False,
         )
         before_user, after_user = [], [llm]

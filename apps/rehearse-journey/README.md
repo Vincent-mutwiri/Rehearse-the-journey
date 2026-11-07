@@ -92,3 +92,19 @@ pick it up automatically even without an explicit `.env` entry.
 All hospital names, doctor names, and processes are **fictional** and used only
 for conversation practice. The PRD's "fit to real person" criterion is noted
 as unmet in this demo build.
+
+## Joy’s 3D character
+
+Joy is an original procedural Three.js character rendered through React Three
+Fiber 8 (the client uses React 18). `client/src/components/JoyScene.tsx` defines
+seven named bones, a body with blended skin weights, and bone-attached facial
+features and limbs. There are no external model or texture downloads.
+
+The conversation state drives breathing, listening tilts, connecting glances,
+speaking gestures and a farewell pose. Each completed user turn triggers a brief
+nod. Mouth movement represents the speaking state; it is not phoneme lip sync.
+
+The scene loads in a separate chunk. OS reduced motion, Reduce motion, Stop
+auto-advance and paused/ended sessions all stop continuous rendering. A text
+placeholder keeps Joy’s accessible label available while loading or if WebGL
+fails. Edit the rig and its frame poses in `JoyScene.tsx` to change the character.

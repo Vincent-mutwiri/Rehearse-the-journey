@@ -130,65 +130,72 @@ Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before**
 
 ### S4 — UI emergency: Soft mirror (Kioo companion) · Sat AM · ~1.5 h
 
-**Goal:** make the companion feel like a calm, friendly presence the person sits with — not a generic voice-AI demo, and not a serious "practice room." The current page (inline-styled badges, black-on-white, no mascot presence) reads as the "SaaS-card kit" default the frontend-design skill flags. This sprint replaces it with a soft, rounded, mascot-forward identity that leans into the name **Kioo** (mirror): Joy reflects the person's state — calm when they're calm, encouraging when they're stuck. Closest reference: Pi's calm companion aesthetic, not Replika's or a dark voice-AI demo.
+**Goal:** give Joy a calm, friendly presence through the Soft mirror palette, a rigged 3D character, and conversation-driven gestures. The landing and rehearsal views share the same companion and existing session controller.
 
-**Why not 3D (honest answer):** a rigged 3D character (Three.js / React Three Fiber) in 90 minutes is not realistic, and a broken 3D mascot is worse than a polished 2D one. The intent behind "3D characters" — a mascot with presence that reacts to the conversation — is achievable in 2D: an SVG Joy with a soft, spring-animated body and expressive states (idle breathing, listening, speaking, paused, encouraging) that reads as alive and calm. The v1.1 sprint SF can graduate to 3D once the rest works.
+**Implementation status (Nov 7):** S4.1–S4.4 are implemented. Joy uses Three.js + React Three Fiber 8 with an original procedural rig, replacing the SVG mascot. TypeScript and the production build pass; Vite reports large-chunk warnings. Headless Chrome verifies the canvas, speaking/listening states, motion preferences, mic-off start, typed replies, send failure, pause, reconnect, and exit. S4.5 remains partially complete: desktop/mobile screenshots and mascot motion checks are done; keyboard/AT, live voice, visualizer motion, and co-designer review still need verification.
 
 **Design plan — Soft mirror** (grounded in the name and the use case, not a default):
 - **Palette (4 named tokens + 2 neutrals):**
   - `LAVENDER` `#A89BD4` — the calm primary; Joy's body, the active/listening accent
   - `PEACH` `#F4C6A6` — the warm secondary; highlights, the current-step marker, Joy's cheeks
-  - `SAGE` `#8FB39B` — the encouraging accent; used only for "you can do this" moments (a successful turn, a completed step)
+  - `SAGE` `#8FB39B` — the companion accent; Joy’s sprout, listening visualizer bars, and scenario preview tags
   - `CREAM` `#FBF7F2` — the resting surface (page background); warm, not white
   - `INK` `#3A3550` — soft near-black with a violet cast; body text (not pure black — gentler)
   - `MIST` `#E8E2F0` — the softest tint; card backgrounds, the transcript panel
 - **Type:** one family, two weights. `Geist` (already installed via `@fontsource-variable/geist`) — Geist Variable at weight ~400 for body, ~600 for the mascot name and step name. No second typeface; the weight contrast does the work. Line lengths < 80 chars; the transcript column is narrow on purpose.
 - **Layout:** single column, left-aligned, max-width ~640px, generous vertical rhythm. The mascot sits **above** the conversation on a wide screen — a calm face the person sees first — then the transcript and controls below. Everything is rounded (`border-radius: 16px` for cards, `9999px` for the mascot and pill buttons); no sharp corners, no SaaS soft-shadows. Borders are `1px solid color-mix(in oklab, INK 10%, transparent)`.
 - **The one memorable thing:** Joy's mascot. Everything else (controls, transcript, status) is quiet and disciplined — soft tints, no gradient washes, no card shadows beyond a single hairline. The mascot is where the warmth lives.
-- **Principle (mirror):** Joy reflects the person's state. When the person hasn't started, Joy is calm and waiting. When the person is speaking, Joy listens (eyes open, still). When Joy speaks, Joy's body has a gentle bounce. When the person pauses, Joy goes still with them — not frozen, just at rest. When the person completes a turn, Joy gives a small `SAGE`-colored nod. The mascot is the mirror; the UI around it is the room.
+- **Principle (mirror):** Joy waits with gentle breathing and blinking, tilts their head while listening, and gestures while speaking. Pause rests the character; a completed user turn triggers a brief nod. The ended state holds a farewell pose. Reduced motion keeps each state static.
 
 **S4.1 — Design tokens + layout shell · ~20 min · depends on: S3**
-- [ ] Add the Soft mirror palette to `src/index.css` as CSS custom properties (`--lavender`, `--peach`, `--sage`, `--cream`, `--ink`, `--mist`) on `:root`. Set `body { background: var(--cream); color: var(--ink); font-family: 'Geist Variable', system-ui, sans-serif; }`.
-- [ ] Add `@fontsource-variable/geist` import to `main.tsx` (already a dep). Weight 100–900 for body; the headline (mascot name + step name) uses weight ~600.
-- [ ] Replace the inline `styles` object in `App.tsx` with Tailwind classes where they exist (shadcn components expect Tailwind) + the CSS variables for the soft mirror palette. Keep the single-column max-width-640 left-aligned shell; bump vertical rhythm (gap ~32px, card padding ~24px).
-- [ ] Set the `--active-background` / `--inactive-background` CSS vars (already in `index.css` for the Pipecat UI components) to `--lavender` and `--mist` so the Pipecat controls inherit the palette.
-- [ ] Confirm `vite build` is clean. Pure presentation scaffolding — no logic changes.
+- [x] Add the Soft mirror palette to `src/index.css` as CSS custom properties (`--lavender`, `--peach`, `--sage`, `--cream`, `--ink`, `--mist`) on `:root`. Set `body { background: var(--cream); color: var(--ink); font-family: 'Geist Variable', system-ui, sans-serif; }`.
+- [x] Add `@fontsource-variable/geist` import to `main.tsx` (already a dep). Weight 100–900 for body; the headline (mascot name + step name) uses weight ~600.
+- [x] Replace the inline `styles` object in `App.tsx` with Tailwind classes where they exist (shadcn components expect Tailwind) + the CSS variables for the soft mirror palette. Keep the single-column max-width-640 left-aligned shell; bump vertical rhythm (gap ~32px, card padding ~24px).
+- [x] Set the `--active-background` / `--inactive-background` CSS vars (already in `index.css` for the Pipecat UI components) to `--lavender` and `--mist` so the Pipecat controls inherit the palette.
+- [x] Confirm `pnpm build` passes TypeScript and Vite production compilation. Large-chunk warnings remain; the 3D scene is lazy-loaded separately.
 - **Gate:** the page renders on the soft cream background with Geist type, single column, left-aligned, rounded cards. No inline-style objects left except where Tailwind can't express the value.
 
-**S4.2 — Joy mascot (2D, calm reflective states) · ~40 min · depends on: S4.1**
-- [ ] Create `src/components/JoyMascot.tsx` — a small SVG of Joy as a soft, rounded blob-body with a face (two eyes, a small mouth, round cheeks). Built from primitives; no external image. Palette: body `LAVENDER`, cheeks `PEACH`, features `INK`, with a `SAGE` accent that appears only on the encouraging state.
-- [ ] Props: `state: 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'` + an optional `encouraging?: boolean` for the completed-turn nod. Joy reacts:
-  - `idle` — gentle breathing (scale 1.0→1.03 on a 5s loop; very slow, very calm; respects `prefers-reduced-motion`)
-  - `connecting` — soft pulse, eyes blinked closed then open (a single gentle "wake" animation)
-  - `listening` — eyes open, body still, a subtle lean toward the person
-  - `speaking` — body has a soft bounce (spring, ~3px, on ~180ms), mouth animates (2-frame mouth shape)
-  - `paused` — body at rest, eyes soft (not closed — Joy is still there, just waiting with you)
-  - `ended` — a small `SAGE`-tinted smile, then fade
-  - `encouraging` — a single `SAGE` nod (a quick downward then back), used when a turn completes
-- [ ] All motion is gated behind `@media (prefers-reduced-motion: no-preference)` — the `motion-reducer` toolkit adapter and the OS preference both stop the animation; Joy shows a static calm frame instead.
-- [ ] Place the mascot **above** the transcript, centered, ~120px — a calm face the person sees first. On narrow screens it stays centered and scales down; it's never hidden while the conversation is active.
-- **Gate:** Joy's face sits above the conversation; the body bounces when Joy speaks, goes still on Pause, gives a small sage nod when a turn completes. A screenshot reads as "a calm companion sitting with you," not "a chatbot."
+**S4.2 — Joy mascot (rigged 3D, calm reflective states) · implemented · depends on: S4.1**
+- [x] Replace the SVG with `src/components/JoyMascot.tsx` (accessible wrapper, lazy loading, OS motion subscription, error boundary) and `src/components/JoyScene.tsx` (React Three Fiber canvas, rig, lighting, and animation).
+- [x] Add `three`, `@react-three/fiber` 8 for React 18, and `@types/three`. Build Joy from local geometry and materials, with no external model or texture downloads.
+- [x] Create seven named bones: hips, chest, head, two arms, and two feet. Bind the body as a `SkinnedMesh` with blended hip/chest skin weights; attach the head, face, limbs, and sprout to the rig. Keep the lavender body, peach cheeks/feet, ink features, and sage sprout.
+- [x] Support `state: 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'`, an incrementing `encourageSignal?: number`, `reduceMotion?: boolean`, and optional `className`. Poses and motion:
+  - `idle` — gentle vertical breathing, body sway, and periodic blinking.
+  - `connecting` — slow head glances alongside breathing and blinking.
+  - `listening` — a small head tilt, with gentle idle motion.
+  - `speaking` — arm gestures, subtle head movement, and an animated mouth. This follows speaking state, not phoneme lip sync.
+  - `paused` — static resting pose; continuous rendering stops.
+  - `ended` — static raised-arm farewell pose; continuous rendering stops.
+  - Completed user turn — a one-shot head nod, retriggered by each new `encourageSignal`.
+- [x] Explicitly stop JavaScript animation for OS reduced motion, the page’s Reduce motion and Stop auto-advance preferences, and paused/ended sessions. Use a demand render loop for static poses; CSS animation rules alone cannot stop Three.js motion.
+- [x] Keep Joy centered above the conversation and on the landing screen. Responsive canvas dimensions are 180–240px wide and 200–260px high; cap pixel ratio at 1.5 and request low-power rendering.
+- [x] Provide a text placeholder during loading or render failure, and an accessible label describing Joy’s current state.
+- **Gate:** the canvas renders at desktop/mobile sizes; session state drives poses; Pause and reduced motion stop animation. Automated checks cover speaking/listening transitions and identical canvas screenshots under Reduce motion. Co-designer acceptance remains pending in S4.5.
 
 **S4.3 — Pipecat UI components wired in · ~20 min · depends on: S4.2**
-- [ ] Replace the custom status `<p>` with the `AudioVisualizerBar` (from `@/components/pipecat/audio-visualizer-bar`) — the mel-band visualizer already in `src/lib/visualizer.ts`. Style it to the palette: Joy's voice renders as `LAVENDER` bars when speaking, `SAGE` when listening. This is the reactive element that makes the page feel alive.
-- [ ] Replace the custom mic toggle with `UserAudioControlView` (from `@/components/pipecat/user-audio-control`) — the shadcn-styled control. It inherits `--active-background: var(--lavender)` / `--inactive-background: var(--mist)` from S4.1.
-- [ ] Use the shadcn `Button` (with its `cva` variants) for Start/Pause/Exit/Send — not inline-styled buttons. Map variants: Start = default (lavender), Pause = secondary (mist), Exit = a muted destructive (not the bright red — a soft `INK`-tinted outline), Send = outline. All rounded-pill where the shadcn variant allows.
-- [ ] The fiction-label notice gets a `PEACH` border + `INK` text on the `CREAM` background — a warm cautionary label, not a red alarm box.
+- [x] Replace the custom status `<p>` with the `AudioVisualizerBar` (from `@/components/pipecat/audio-visualizer-bar`) — the mel-band visualizer already in `src/lib/visualizer.ts`. Style it to the palette: Joy's voice renders as `LAVENDER` bars when speaking, `SAGE` when listening. This is the reactive element that makes the page feel alive.
+- [x] Replace the custom mic toggle with `UserAudioControlView` (from `@/components/pipecat/user-audio-control`) — the shadcn-styled control. It inherits `--active-background: var(--lavender)` / `--inactive-background: var(--mist)` from S4.1.
+- [x] Use the shadcn `Button` (with its `cva` variants) for Start/Pause/Exit/Send — not inline-styled buttons. Map variants: Start = default (lavender), Pause = secondary (mist), Exit = a muted destructive (not the bright red — a soft `INK`-tinted outline), Send = outline. All rounded-pill where the shadcn variant allows.
+- [x] The fiction-label notice gets a `PEACH` border + `INK` text on the `CREAM` background — a warm cautionary label, not a red alarm box.
 - **Gate:** the controls are the Pipecat UI components, styled to the soft mirror palette; the visualizer shows Joy's voice; the buttons are the shadcn buttons. No inline-styled buttons remain.
 
 **S4.4 — Scenario + level selection landing · ~15 min · depends on: S4.3**
-- [ ] Add a **landing screen** the person sees first (the `idle` state): Joy's mascot centered and calm, the title "Rehearse the Journey" in Geist ~600, a one-line subtitle, and the four Kioo Companion scenarios as soft rounded cards (Hospital Reception, Matatu Stage, Government Service, Asking for Directions). Only Hospital Level 1 is live; the other three are labelled "Coming in v1.1" with a small `SAGE` tag (honest, not a fake-disabled look).
-- [ ] Each card is a shadcn `Button` (variant outline, size large, rounded-16px); the live one (Hospital Level 1) has the `LAVENDER` accent. Picking it starts the session.
-- [ ] One-line subtitle in Geist ~400: "Practice the conversations that feel hard, with a companion who sits with you." (Real copy, in the PRD's tone — calm, not "Welcome to the future of conversation.")
-- [ ] The landing is the `idle` state of the existing controller; selecting a scenario transitions to `connecting`. No new router — same state machine, the landing is just how `idle` renders.
+- [x] Add a **landing screen** the person sees first (the `idle` state): Joy's mascot centered and calm, the title "Rehearse the Journey" in Geist ~600, a one-line subtitle, and the four Kioo Companion scenarios as soft rounded cards (Hospital Reception, Matatu Stage, Government Service, Asking for Directions). Only Hospital Level 1 is live; the other three are labelled "Coming in v1.1" with a small `SAGE` tag (honest, not a fake-disabled look).
+- [x] Each card is a shadcn `Button` (variant outline, size large, rounded-16px); the live one (Hospital Level 1) has the `LAVENDER` accent. Picking it starts the session.
+- [x] One-line subtitle in Geist ~400: "Practice the conversations that feel hard, with a companion who sits with you." (Real copy, in the PRD's tone — calm, not "Welcome to the future of conversation.")
+- [x] The landing is the `idle` state of the existing controller; selecting a scenario transitions to `connecting`. No new router — same state machine, the landing is just how `idle` renders.
 - **Gate:** the person opens `localhost:3000` and sees Joy, the title, the subtitle, and the four scenario cards — a warm homepage, not a blank chat. Picking Hospital starts the rehearsal.
 
-**S4.5 — Polish pass + reduced-motion audit · ~10 min · depends on: S4.4**
-- [ ] Walk the page as the co-designer would: open it, see Joy, pick a scenario, watch the mascot listen, type a reply, see Joy speak and bounce gently, pause, resume, exit. Fix any visual seam (misaligned mascot, broken visualizer on idle, wrong color on a disabled button, sharp corner that should be rounded).
-- [ ] Toggle `prefers-reduced-motion` (or the `motion-reducer` adapter) and confirm: mascot is static-calm, visualizer is static, no autoplay motion. The page still reads as warm and alive — the warmth is the palette, the rounded shapes, and Joy's resting face, not motion.
-- [ ] Check keyboard focus rings are visible on the cream background (the shadcn `Button` focus ring needs enough contrast on `#FBF7F2`; bump to `--lavender` if needed).
-- [ ] Take a screenshot. If it reads as "a generic voice-AI demo," revise; if it reads as "a calm companion sitting with you in a warm room," ship.
-- **Gate:** a keyboard-only run works; reduced motion is respected; a screenshot reads as the soft mirror companion, not a template.
+**S4.5 — Polish pass + reduced-motion audit · partially complete · depends on: S4.4**
+- [x] Run the SDK-mocked browser regression through scenario selection, mic-off connection, speaking/listening state changes, typed reply, send failure, mic toggle, pause, reconnect, and exit. No provider or microphone calls are made.
+- [x] Verify Joy respects Reduce motion, Stop auto-advance, and dynamic OS `prefers-reduced-motion` changes. Compare canvas screenshots across time to confirm Reduce motion produces a static frame; confirm paused/ended states report still motion.
+- [x] Capture and inspect desktop (1000×900) and mobile (375×812) screenshots of the 3D landing. Local review artifacts: `/tmp/joy-desktop.png` and `/tmp/joy-mobile.png` (temporary, not committed demo evidence).
+- [ ] Walk the complete page with the co-designer on the demo machine, including provider-backed voice, Joy’s gestures, pause/reconnect, and exit. Review visual seams and the character’s tone.
+- [ ] Verify the audio visualizer also becomes static under reduced motion and Stop auto-advance; mascot verification alone does not establish this.
+- [ ] Complete a keyboard-only run and preferred assistive-technology check; confirm focus rings are visible on cream and controls remain usable.
+- [ ] Save final screenshots/demo evidence from the tested demo build and obtain co-designer acceptance of the Soft mirror presentation.
+- **Verification commands:** from `apps/rehearse-journey/client`, run `pnpm build`, then start Vite and run `python3 test/rehearsal-e2e.py http://localhost:3000` (substitute the actual dev-server port).
+- **Gate:** build and mocked session regression pass; mascot reduced motion is verified. Final sign-off remains open until keyboard/AT, visualizer motion, live voice, and co-designer checks pass.
 
 ---
 

@@ -23,6 +23,9 @@ import {
 import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js'
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
 import { UserAudioControlView } from '@/components/pipecat/user-audio-control'
+import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
+import JoyMascot from '@/components/JoyMascot'
+import { Button } from '@/components/ui/button'
 import {
   ReadAloud,
   StopAutoAdvance,
@@ -36,171 +39,15 @@ import {
 
 type RolePlayState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'
 
-// ── Colour tokens (match Kioo Companion palette) ─────────────────────────────
+// ── Scenarios (S4.4 landing) ─────────────────────────────────────────────────
+// Only Hospital Level 1 is live; the rest are honest previews, not dead buttons.
 
-const styles: Record<string, React.CSSProperties> = {
-  app: {
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: '100vh',
-    maxWidth: 720,
-    margin: '0 auto',
-    padding: '24px 20px',
-    gap: 24,
-  },
-  header: {
-    borderBottom: '3px solid #111111',
-    paddingBottom: 16,
-  },
-  badge: {
-    display: 'inline-block',
-    padding: '4px 12px',
-    borderRadius: 6,
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    letterSpacing: '0.03em',
-    textTransform: 'uppercase' as const,
-  },
-  badgeTeal: { background: '#006B5B', color: '#FFFFFF' },
-  badgeRed:  { background: '#C62828', color: '#FFFFFF' },
-  badgeBlack:{ background: '#111111', color: '#FFFFFF' },
-  fiction: {
-    background: '#FFF3CD',
-    border: '2px solid #C62828',
-    borderRadius: 8,
-    padding: '10px 16px',
-    fontSize: '0.9rem',
-  },
-  statusArea: {
-    padding: '16px',
-    background: '#F5F5F5',
-    borderRadius: 8,
-    minHeight: 80,
-  },
-  transcript: {
-    flex: 1,
-    padding: 16,
-    background: '#FAFAFA',
-    border: '2px solid #111111',
-    borderRadius: 8,
-    minHeight: 200,
-    fontSize: '1rem',
-    overflowY: 'auto' as const,
-  },
-  inputRow: {
-    display: 'flex',
-    gap: 12,
-    alignItems: 'flex-end',
-  },
-  textarea: {
-    flex: 1,
-    padding: 12,
-    fontSize: '1rem',
-    border: '3px solid #111111',
-    borderRadius: 8,
-    resize: 'vertical' as const,
-    minHeight: 64,
-    fontFamily: 'inherit',
-  },
-  btnTeal: {
-    padding: '12px 24px',
-    background: '#006B5B',
-    color: '#FFFFFF',
-    border: '3px solid #006B5B',
-    borderRadius: 8,
-    fontSize: '1rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    minHeight: 48,
-  },
-  btnRed: {
-    padding: '12px 24px',
-    background: '#C62828',
-    color: '#FFFFFF',
-    border: '3px solid #C62828',
-    borderRadius: 8,
-    fontSize: '1rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    minHeight: 48,
-  },
-  btnBlack: {
-    padding: '12px 24px',
-    background: '#111111',
-    color: '#FFFFFF',
-    border: '3px solid #111111',
-    borderRadius: 8,
-    fontSize: '1rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    minHeight: 48,
-  },
-  controlRow: {
-    display: 'flex',
-    gap: 12,
-    flexWrap: 'wrap' as const,
-  },
-  prefs: {
-    padding: 16,
-    background: '#FFFFFF',
-    border: '2px solid #111111',
-    borderRadius: 8,
-  },
-  prefGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 12,
-    marginTop: 12,
-  },
-  prefBtn: {
-    padding: '10px 14px',
-    border: '2px solid #111111',
-    borderRadius: 8,
-    background: '#F5F5F5',
-    fontSize: '0.95rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    minHeight: 44,
-    textAlign: 'left' as const,
-  },
-  prefBtnOn: {
-    background: '#006B5B',
-    color: '#FFFFFF',
-    border: '2px solid #006B5B',
-  },
-  prefHint: {
-    display: 'block',
-    fontSize: '0.8rem',
-    fontWeight: 400,
-    marginTop: 4,
-    opacity: 0.85,
-  },
-  card: {
-    padding: 16,
-    background: '#FFFFFF',
-    border: '2px solid #111111',
-    borderRadius: 8,
-  },
-  smallBtn: {
-    padding: '6px 12px',
-    background: '#FFFFFF',
-    color: '#111111',
-    border: '2px solid #111111',
-    borderRadius: 6,
-    fontSize: '0.85rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    minHeight: 36,
-  },
-  tipsCarousel: {
-    padding: '10px 16px',
-    background: '#EEF4F2',
-    border: '2px dashed #006B5B',
-    borderRadius: 8,
-    fontSize: '0.9rem',
-    minHeight: 52,
-  },
-}
+const SCENARIOS = [
+  { name: 'Hospital Reception', level: 'Level 1 · Easy Start', live: true },
+  { name: 'Matatu Stage', live: false },
+  { name: 'Government Service', live: false },
+  { name: 'Asking for Directions', live: false },
+] as const
 
 // ── Transcript entry ─────────────────────────────────────────────────────────
 
@@ -250,6 +97,8 @@ function RehearsalView() {
   const [reduceMotion, setReduceMotion] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   const [aloudSpeaking, setAloudSpeaking] = useState(false)
+  // Increments on each completed user turn — retriggers Joy's sage nod.
+  const [nod, setNod] = useState(0)
 
   // Rotate the tips carousel on a timer — the thing stop-auto-advance holds.
   useEffect(() => {
@@ -273,6 +122,7 @@ function RehearsalView() {
 
   const addTurn = useCallback((speaker: 'Joy' | 'You', text: string) => {
     setTurns(prev => [...prev, { speaker, text, id: turnId.current++ }])
+    if (speaker === 'You') setNod(n => n + 1)
   }, [])
 
   // Listen for bot transcript events
@@ -458,134 +308,214 @@ function RehearsalView() {
 
   const isConnected = state === 'listening' || state === 'speaking'
 
+  // ── Landing (S4.4): how `idle` renders — Joy, title, scenario cards ──
+  if (state === 'idle') {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col items-center justify-center gap-8 px-5 py-10">
+        <JoyMascot state="idle" reduceMotion={reduceMotion || stopAuto} />
+        <header className="text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Rehearse the Journey</h1>
+          <p className="mx-auto mt-2 max-w-[46ch] text-[0.95rem] leading-relaxed opacity-80">
+            Practice the conversations that feel hard, with a companion who sits with you.
+          </p>
+        </header>
+        <div className="grid w-full gap-3" role="group" aria-label="Practice scenarios">
+          {SCENARIOS.map(s => (
+            <Button
+              key={s.name}
+              variant="outline"
+              size="lg"
+              disabled={!s.live}
+              onClick={s.live ? handleStart : undefined}
+              className={
+                'h-auto flex-col items-start gap-1 rounded-2xl px-5 py-4 text-left ' +
+                (s.live
+                  ? 'border-lavender bg-lavender/15 hover:border-lavender hover:bg-lavender/25'
+                  : 'border-mist bg-white/50 opacity-80')
+              }
+            >
+              <span className="flex w-full items-center justify-between gap-3 font-semibold">
+                {s.name}
+                {!s.live && (
+                  <span className="rounded-full bg-sage/25 px-2.5 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wide">
+                    Coming in v1.1
+                  </span>
+                )}
+              </span>
+              {'level' in s && s.level && (
+                <span className="text-sm font-normal opacity-70">{s.level}</span>
+              )}
+            </Button>
+          ))}
+        </div>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      </main>
+    )
+  }
+
   return (
-    <div style={styles.app}>
-      {/* ── Header ── */}
-      <header style={styles.header}>
-        <h1 style={{ fontSize: '1.5rem', marginBottom: 8 }}>Rehearse the Journey</h1>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ ...styles.badge, ...styles.badgeTeal }}>Hospital Reception</span>
-          <span style={{ ...styles.badge, ...styles.badgeRed }}>Level 1 · Easy Start</span>
-          <span style={{ ...styles.badge, ...styles.badgeBlack }}>Receptionist Joy</span>
+    <main className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-8 px-5 py-8">
+      {/* ── Header: Joy above the conversation, badges as soft pills ── */}
+      <header className="flex flex-col items-center gap-4">
+        <JoyMascot state={state} encourageSignal={nod} reduceMotion={reduceMotion || stopAuto} />
+        <div className="text-center">
+          <h1 className="text-xl font-semibold tracking-tight">Rehearse the Journey</h1>
+          <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs font-semibold">
+            <span className="rounded-full bg-lavender/60 px-3 py-1">Hospital Reception</span>
+            <span className="rounded-full bg-peach/70 px-3 py-1">Level 1 · Easy Start</span>
+            <span className="rounded-full bg-mist px-3 py-1">Receptionist Joy</span>
+          </div>
         </div>
       </header>
 
       {/* ── Fictional fixture disclosure ── */}
-      <div style={styles.fiction} role="note" aria-label="Fictional scenario notice">
-        ⚠️ <strong>Practice scenario — not a real hospital.</strong> This conversation
+      <div
+        role="note"
+        aria-label="Fictional scenario notice"
+        className="rounded-2xl border border-peach bg-peach/20 p-4 text-sm leading-relaxed"
+      >
+        <strong>Practice scenario — not a real hospital.</strong> This conversation
         is fictional and used only for rehearsal. Use made-up details. Starting
         connects to an AI provider; typed messages and any enabled microphone audio
         are sent for replies. The mic starts off. This app does not save the transcript.
       </div>
 
-      {/* Carousel + pulse keyframes for the S3 adapter demos */}
-      <style>{`
-        .tips-carousel .tip-slide { display: none; }
-        .tips-carousel .tip-slide.is-active { display: block; }
-        @keyframes rtj-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-        .rtj-pulse { animation: rtj-pulse 1.6s ease-in-out infinite; }
-      `}</style>
-
       {/* ── S3: toolkit adapter preferences ── */}
-      <fieldset style={styles.prefs}>
-        <legend style={{ fontWeight: 700, padding: '0 6px' }}>
-          Accessibility preferences <span style={{ fontWeight: 400 }}>(toolkit adapters, applied to this page)</span>
+      <fieldset className="rounded-2xl border border-ink/10 bg-white/70 p-5">
+        <legend className="px-1.5 font-semibold">
+          Accessibility preferences{' '}
+          <span className="font-normal opacity-70">(toolkit adapters, applied to this page)</span>
         </legend>
-        <div style={styles.prefGrid} role="group" aria-label="Accessibility preferences">
-          <button
-            style={{ ...styles.prefBtn, ...(readAloud ? styles.prefBtnOn : {}) }}
-            aria-pressed={readAloud}
-            onClick={toggleReadAloud}
-          >
-            {readAloud ? '⏹ Stop reading aloud' : '🔊 Read page aloud'}
-            <span style={styles.prefHint}>
-              {aloudSpeaking ? 'Reading this page’s text now…' : 'Speaks the text on this page'}
-            </span>
-          </button>
-          <button
-            style={{ ...styles.prefBtn, ...(plainWords ? styles.prefBtnOn : {}) }}
-            aria-pressed={plainWords}
-            onClick={togglePlainWords}
-          >
-            {plainWords ? 'Aa Plainer words — on' : 'Aa Plainer words'}
-            <span style={styles.prefHint}>Rewrites the step card in plain language</span>
-          </button>
-          <button
-            style={{ ...styles.prefBtn, ...(stopAuto ? styles.prefBtnOn : {}) }}
-            aria-pressed={stopAuto}
-            onClick={toggleStopAuto}
-          >
-            ⏸ Stop auto-advance
-            <span style={styles.prefHint}>Holds still anything that moves on a timer</span>
-          </button>
-          <button
-            style={{ ...styles.prefBtn, ...(reduceMotion ? styles.prefBtnOn : {}) }}
-            aria-pressed={reduceMotion}
-            onClick={toggleReduceMotion}
-          >
-            🐢 Reduce motion
-            <span style={styles.prefHint}>Stops animations and transitions on this page</span>
-          </button>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2" role="group" aria-label="Accessibility preferences">
+          {(
+            [
+              {
+                key: 'readAloud', on: readAloud, toggle: toggleReadAloud,
+                label: readAloud ? '⏹ Stop reading aloud' : '🔊 Read page aloud',
+                hint: aloudSpeaking ? 'Reading this page’s text now…' : 'Speaks the text on this page',
+              },
+              {
+                key: 'plainWords', on: plainWords, toggle: togglePlainWords,
+                label: plainWords ? 'Aa Plainer words — on' : 'Aa Plainer words',
+                hint: 'Rewrites the step card in plain language',
+              },
+              {
+                key: 'stopAuto', on: stopAuto, toggle: toggleStopAuto,
+                label: '⏸ Stop auto-advance',
+                hint: 'Holds still anything that moves on a timer',
+              },
+              {
+                key: 'reduceMotion', on: reduceMotion, toggle: toggleReduceMotion,
+                label: '🐢 Reduce motion',
+                hint: 'Stops animations and transitions on this page',
+              },
+            ] as const
+          ).map(p => (
+            <button
+              key={p.key}
+              aria-pressed={p.on}
+              onClick={p.toggle}
+              className={
+                'min-h-[56px] rounded-xl border px-4 py-2.5 text-left text-sm font-semibold transition-colors ' +
+                (p.on
+                  ? 'border-lavender bg-lavender/25'
+                  : 'border-ink/15 bg-white/60 hover:border-lavender/60')
+              }
+            >
+              {p.label}
+              <span className="mt-1 block text-xs font-normal opacity-75">{p.hint}</span>
+            </button>
+          ))}
         </div>
       </fieldset>
 
       {/* ── Rotating tips: the auto-advancing content stop-auto-advance holds ── */}
-      <div ref={tipsRef} className="tips-carousel" style={styles.tipsCarousel} aria-label="Rehearsal tips">
+      <div ref={tipsRef} className="tips-carousel min-h-[52px] rounded-2xl border border-dashed border-lavender bg-mist/50 px-4 py-3 text-sm" aria-label="Rehearsal tips">
         {TIPS.map((tip, i) => (
           <div key={i} className={`tip-slide${i === 0 ? ' is-active' : ''}`}>{tip}</div>
         ))}
       </div>
 
-      {/* ── Connection status ── */}
-      <div style={styles.statusArea} aria-live="polite" aria-label="Connection status">
-        {isConnected && (
-          <p><span className="rtj-pulse" aria-hidden="true">●</span> {state === 'speaking' ? '🔊 Joy is speaking…' : (micEnabled ? 'Microphone on — speak or type below.' : 'Microphone off — type below, or turn on your microphone.')}</p>
+      {/* ── Connection status + Joy's voice visualizer ── */}
+      <div aria-live="polite" aria-label="Connection status" className="rounded-2xl border border-ink/10 bg-mist/40 p-4">
+        {(isConnected || state === 'connecting') && (
+          <div className="flex items-center gap-4">
+            <AudioVisualizerBar
+              participantType="bot"
+              isConnecting={state === 'connecting'}
+              barColor={state === 'speaking' ? '--lavender' : '--sage'}
+              barCount={28}
+              barWidth={4}
+              barGap={4}
+              barMaxHeight={44}
+              className="h-11 flex-1"
+            />
+            <p className="shrink-0 text-sm">
+              {state === 'speaking'
+                ? '🔊 Joy is speaking…'
+                : micEnabled
+                  ? 'Microphone on — speak or type below.'
+                  : 'Microphone off — type below, or turn on your microphone.'}
+            </p>
+          </div>
         )}
-        {state === 'idle'       && <p>Ready to start. Press <strong>Start Rehearsal</strong> to connect to Joy.</p>}
         {state === 'connecting' && <p>⏳ Connecting to Joy…</p>}
-        {state === 'paused'     && <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>}
-        {state === 'ended'      && (
-          <p>Session ended. <button disabled={stopping} style={styles.btnTeal} onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}>
-            Start again
-          </button></p>
+        {state === 'paused' && <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>}
+        {state === 'ended' && (
+          <p>
+            Session ended.{' '}
+            <Button
+              size="sm"
+              disabled={stopping}
+              onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}
+            >
+              Start again
+            </Button>
+          </p>
         )}
       </div>
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       {/* ── Transcript ── */}
-      <section style={styles.transcript} aria-label="Conversation transcript" aria-live="polite">
-        {turns.length === 0 && <p style={{ color: '#666' }}>The conversation will appear here.</p>}
+      <section
+        aria-label="Conversation transcript"
+        aria-live="polite"
+        className="max-h-[320px] min-h-[200px] overflow-y-auto rounded-2xl border border-ink/10 bg-mist/40 p-5 text-base"
+      >
+        {turns.length === 0 && <p className="opacity-60">The conversation will appear here.</p>}
         {turns.map(t => (
-          <div key={t.id} style={{ marginBottom: 12 }}>
+          <p key={t.id} className="mb-3">
             <strong>{t.speaker}:</strong> {t.text}
-          </div>
+          </p>
         ))}
       </section>
 
       {/* ── Step card: the simplify-text demo target ── */}
-      <section style={styles.card} aria-label="What to expect">
-        <h2 style={{ fontSize: '1rem', marginBottom: 8 }}>What to expect</h2>
-        <p style={{ marginBottom: plainWords ? 8 : 0 }}>
+      <section aria-label="What to expect" className="rounded-2xl border border-ink/10 bg-white/70 p-5">
+        <h2 className="mb-2 text-base font-semibold">What to expect</h2>
+        <p className={plainWords ? 'mb-3' : ''}>
           {plainWords && !showOriginal ? simplifyStepText(ORIGINAL_STEP_TEXT) : ORIGINAL_STEP_TEXT}
         </p>
         {plainWords && (
-          <button
-            style={styles.smallBtn}
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full"
             onClick={() => setShowOriginal(o => !o)}
             aria-pressed={showOriginal}
           >
             {showOriginal ? 'Show plainer words' : 'Show original'}
-          </button>
+          </Button>
         )}
       </section>
 
       {/* ── Typed input (guaranteed alternative to voice) ── */}
-      <div style={styles.inputRow}>
+      <div className="flex items-end gap-3">
         <textarea
           id="typed-input"
           aria-label="Type your response here"
           placeholder="Type here — works with or without mic"
-          style={styles.textarea}
+          className="min-h-[64px] flex-1 resize-y rounded-2xl border border-ink/15 bg-white/80 px-4 py-3 text-base outline-none focus-visible:border-lavender focus-visible:ring-2 focus-visible:ring-lavender/50"
           value={typedInput}
           maxLength={2000}
           onChange={e => setTypedInput(e.target.value)}
@@ -596,37 +526,38 @@ function RehearsalView() {
             }
           }}
         />
-        <button
-          style={isConnected ? styles.btnTeal : { ...styles.btnTeal, opacity: 0.5 }}
+        <Button
+          variant="outline"
+          className="h-12 shrink-0 rounded-full px-5"
           onClick={handleSendText}
           disabled={!isConnected || sending || !typedInput.trim()}
           aria-label="Send typed message"
         >
           {sending ? 'Sending…' : 'Send'}
-        </button>
+        </Button>
       </div>
 
       {/* ── Controls: always visible, never buried ── */}
-      <div style={styles.controlRow} role="group" aria-label="Rehearsal controls">
-        {state === 'idle' && (
-          <button style={styles.btnTeal} onClick={handleStart} aria-label="Start rehearsal with Joy">
-            Start Rehearsal
-          </button>
-        )}
+      <div className="flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
         {isConnected && (
-          <button style={styles.btnBlack} onClick={() => void stopSession('paused')} aria-label="Pause — stops audio and microphone">
+          <Button variant="secondary" className="rounded-full" onClick={() => void stopSession('paused')} aria-label="Pause — stops audio and microphone">
             ⏸ Pause
-          </button>
+          </Button>
         )}
         {state === 'paused' && (
-          <button disabled={stopping} style={styles.btnTeal} onClick={handleStart} aria-label="Reconnect with microphone off">
+          <Button disabled={stopping} className="rounded-full" onClick={handleStart} aria-label="Reconnect with microphone off">
             Reconnect with mic off
-          </button>
+          </Button>
         )}
         {(isConnected || state === 'paused' || state === 'connecting') && (
-          <button style={styles.btnRed} onClick={() => void stopSession('ended')} aria-label="Exit rehearsal — ends the session">
+          <Button
+            variant="outline"
+            className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+            onClick={() => void stopSession('ended')}
+            aria-label="Exit rehearsal — ends the session"
+          >
             ✕ Exit
-          </button>
+          </Button>
         )}
         {isConnected && (
           <UserAudioControlView
@@ -644,7 +575,7 @@ function RehearsalView() {
 
       {/* Pipecat audio element (required for voice output) */}
       {isConnected && <PipecatClientAudio />}
-    </div>
+    </main>
   )
 }
 

@@ -22,11 +22,31 @@ def check_keys():
         key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not key:
             raise ValueError("Set GOOGLE_API_KEY or GEMINI_API_KEY for Gemini Live.")
+        # The Lovable team proxy carries REST (generateContent) but not the
+        # Live WebSocket (bidiGenerateContent). When a proxy base URL is set,
+        # use the REST text LLM + Gemini TTS path, not Live. STT is handled
+        # in the browser (Web Speech API) and arrives as RTVI sendText.
+        if os.getenv("GEMINI_PROXY_BASE_URL"):
+            return "gemini_text", key
         return "gemini", key
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         raise ValueError("Set OPENAI_API_KEY in bot/.env for the OpenAI pipeline.")
     return "openai", key
+
+
+def _proxy_http_options():
+    """HttpOptions pointing the google-genai Client at the Lovable proxy, if set."""
+    proxy_base = os.getenv("GEMINI_PROXY_BASE_URL")
+    if not proxy_base:
+        return None
+    from google.genai.types import HttpOptions
+    opts = HttpOptions(
+        base_url=proxy_base,
+        api_version=os.getenv("GEMINI_PROXY_API_VERSION", "v1beta"),
+    )
+    logger.info(f"Routing Gemini through proxy: {proxy_base}")
+    return opts
 
 
 async def bot(runner_args):
@@ -59,36 +79,48 @@ async def bot(runner_args):
     )
 
     if provider == "gemini":
+        # Gemini Live (speech-to-speech) — only works without the proxy; the
+        # proxy 404s the bidi WebSocket. STT is server-side (Live hears audio).
         from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 
         settings = {"system_instruction": JOY_SYSTEM_PROMPT, "voice": "Aoede"}
         if os.getenv("GEMINI_LIVE_MODEL"):
             settings["model"] = os.environ["GEMINI_LIVE_MODEL"]
-
-        # Lovable team proxy: when GEMINI_PROXY_BASE_URL is set, route the
-        # google-genai Client through it. The proxy expects the key in the
-        # x-goog-api-key header (which is what the Client sends for api_key)
-        # and the v1beta API version. Live uses a WebSocket; the proxy must
-        # support ws/wss for Live to work — if it only proxies REST, Live
-        # fails and the bot should fall back to the OpenAI text path.
-        http_options = None
-        proxy_base = os.getenv("GEMINI_PROXY_BASE_URL")
-        if proxy_base:
-            from google.genai.types import HttpOptions
-            http_options = HttpOptions(
-                base_url=proxy_base,
-                api_version=os.getenv("GEMINI_PROXY_API_VERSION", "v1beta"),
-            )
-            logger.info(f"Routing Gemini through proxy: {proxy_base}")
-
         llm = GeminiLiveLLMService(
             api_key=key,
             settings=GeminiLiveLLMService.Settings(**settings),
-            http_options=http_options,
+            http_options=_proxy_http_options(),
             inference_on_context_initialization=False,
         )
         before_user, after_user = [], [llm]
-    else:
+
+    elif provider == "gemini_text":
+        # Gemini REST text LLM + Gemini TTS, both through the Lovable proxy.
+        # No server-side STT — the browser's Web Speech API transcribes the
+        # person's speech and sends it as RTVI sendText, which the
+        # LLMUserAggregator accepts as a user turn. Joy's reply is spoken by
+        # GeminiTTSService (gemini-3.8-flash-lite-tts) through the proxy.
+        from pipecat.services.google.llm import GoogleLLMService
+        from pipecat.services.google.tts import GeminiTTSService
+
+        http_options = _proxy_http_options()
+        llm = GoogleLLMService(
+            api_key=key,
+            model=os.getenv("GEMINI_TEXT_MODEL", "gemini-3.8-flash"),
+            system_instruction=JOY_SYSTEM_PROMPT,
+            http_options=http_options,
+        )
+        tts = GeminiTTSService(
+            api_key=key,
+            model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"),
+            voice=os.getenv("GEMINI_TTS_VOICE", "Leda"),
+            http_options=http_options,
+            use_genai=True,
+        )
+        # No STT in the pipeline — the browser transcribes and sends text.
+        before_user, after_user = [], [llm, tts]
+
+    else:  # openai
         from pipecat.services.openai.llm import OpenAILLMService
         from pipecat.services.openai.stt import OpenAISTTService
         from pipecat.services.openai.tts import OpenAITTSService

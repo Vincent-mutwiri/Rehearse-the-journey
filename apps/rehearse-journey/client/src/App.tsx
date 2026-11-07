@@ -102,6 +102,11 @@ function RehearsalView() {
   const [aloudSpeaking, setAloudSpeaking] = useState(false)
   // Increments on each completed user turn — retriggers Joy's sage nod.
   const [nod, setNod] = useState(0)
+  // Joy is preparing a response (between user send and Joy's first word).
+  const [joyThinking, setJoyThinking] = useState(false)
+  // Interim speech-to-text from the browser STT — shows what Joy "hears"
+  // before the transcript is final, so the person knows the mic is working.
+  const [interimSpoken, setInterimSpoken] = useState('')
 
   const motionReduced = useReducedMotion(reduceMotion)
   const landing = state === 'idle'
@@ -153,15 +158,27 @@ function RehearsalView() {
     const text = transcript.trim()
     if (!client || !active.current || !text) return
     if (state !== 'listening' && state !== 'speaking') return
+    setInterimSpoken('')
+    setJoyThinking(true)
     void client.sendText(text, { run_immediately: true, audio_response: true })
       .then(() => addTurn('You', text))
       .catch(() => setError('Your speech could not be sent. Try again or type below.'))
   }, [client, state, addTurn])
   const browserSTT = useBrowserSTT({ onFinal: sendSpoken })
 
+  // Show interim STT text so the person knows the mic is hearing them.
+  useEffect(() => {
+    if (!micEnabled) setInterimSpoken('')
+    else setInterimSpoken(browserSTT.interim)
+  }, [browserSTT.interim, micEnabled])
+
   // Listen for bot transcript events
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
-    if (active.current && data.text.trim()) addTurn('Joy', data.text)
+    if (active.current && data.text.trim()) {
+      addTurn('Joy', data.text)
+      setJoyThinking(false)  // Joy's first word arrived — no longer "thinking"
+      setNod(n => n + 1)     // Joy's turn complete → sage nod
+    }
   })
 
   useRTVIClientEvent(RTVIEvent.UserTranscript, (data: { text: string; final: boolean }) => {
@@ -237,10 +254,12 @@ function RehearsalView() {
     generation.current++
     stoppingRef.current = true
     setStopping(true)
-    // Stop conversation audio and this page’s read-aloud speech. OS screen readers remain user-controlled.
+    // Stop conversation audio and this page's read-aloud speech. OS screen readers remain user-controlled.
     ReadAloud.stop()
     setReadAloud(false)
     setAloudSpeaking(false)
+    setJoyThinking(false)
+    setInterimSpoken('')
     browserSTT.stop()  // stop browser STT too — don't leave the mic listening
     client?.enableMic(false)
     const tracks = client?.tracks()
@@ -267,6 +286,7 @@ function RehearsalView() {
     sendingRef.current = true
     setSending(true)
     setError('')
+    setJoyThinking(true)
     try {
       await client.sendText(text, { run_immediately: true, audio_response: true })
       if (active.current && current === generation.current) {
@@ -413,7 +433,30 @@ function RehearsalView() {
   }
 
   return (
-    <main className="rehearsal-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-8 px-5 py-8">
+    <main className="rehearsal-shell mx-auto flex min-h-screen w-full max-w-[920px] flex-col gap-6 px-5 py-6 sm:py-8 lg:flex-row lg:gap-10 lg:py-10">
+      {/* ── Joy, center stage: a sticky column on wide screens, a hero on narrow ── */}
+      <section
+        aria-label="Joy, your rehearsal companion"
+        className="flex flex-col items-center gap-4 lg:sticky lg:top-8 lg:h-fit lg:min-h-[60vh] lg:flex-1 lg:items-center lg:justify-center"
+      >
+        <JoyMascot
+          state={joyThinking && state === 'listening' ? 'idle' : state}
+          encourageSignal={nod}
+          reduceMotion={reduceMotion || stopAuto}
+          className="lg:scale-110"
+        />
+        <div className="text-center">
+          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Rehearse the Journey</h1>
+          <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs font-semibold">
+            <span className="rounded-full bg-lavender/60 px-3 py-1">Hospital Reception</span>
+            <span className="rounded-full bg-peach/70 px-3 py-1">Level 1 · Easy Start</span>
+            <span className="rounded-full bg-mist px-3 py-1">Receptionist Joy</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Conversation: the right column on wide screens, the full width below Joy ── */}
+      <div className="flex flex-col gap-5 lg:flex-[1.4] lg:overflow-y-auto lg:max-h-[calc(100vh-5rem)]">
       {readAloud && (
         <Button variant="outline" className="sticky top-3 z-10 self-start" onClick={() => {
           ReadAloud.stop()
@@ -424,18 +467,6 @@ function RehearsalView() {
           Stop page speech
         </Button>
       )}
-      {/* ── Header: Joy above the conversation, badges as soft pills ── */}
-      <header className="flex flex-col items-center gap-4">
-        <JoyMascot state={state} encourageSignal={nod} reduceMotion={reduceMotion || stopAuto} />
-        <div className="text-center">
-          <h1 className="text-xl font-semibold tracking-tight">Rehearse the Journey</h1>
-          <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-lavender/60 px-3 py-1">Hospital Reception</span>
-            <span className="rounded-full bg-peach/70 px-3 py-1">Level 1 · Easy Start</span>
-            <span className="rounded-full bg-mist px-3 py-1">Receptionist Joy</span>
-          </div>
-        </div>
-      </header>
 
       {/* ── Fictional fixture disclosure ── */}
       <div
@@ -523,9 +554,11 @@ function RehearsalView() {
             <p className="min-w-0 text-sm">
               {state === 'speaking'
                 ? '🔊 Joy is speaking…'
-                : micEnabled
-                  ? 'Microphone on — speak or type below.'
-                  : 'Microphone off — type below, or turn on your microphone.'}
+                : joyThinking
+                  ? '💭 Joy is thinking…'
+                  : micEnabled
+                    ? (interimSpoken ? `you said: ${interimSpoken}` : '🎤 Listening — speak or type below.')
+                    : 'Microphone off — type below, or turn on your microphone.'}
             </p>
           </div>
         )}
@@ -554,12 +587,33 @@ function RehearsalView() {
         aria-live="polite"
         className="max-h-[320px] min-h-[200px] overflow-y-auto rounded-2xl border border-ink/10 bg-mist/40 p-5 text-base"
       >
-        {turns.length === 0 && <p className="opacity-60">The conversation will appear here.</p>}
+        {turns.length === 0 && !joyThinking && <p className="opacity-60">The conversation will appear here.</p>}
         {turns.map(t => (
-          <p key={t.id} className="mb-3">
-            <strong>{t.speaker}:</strong> {t.text}
-          </p>
+          <div
+            key={t.id}
+            className={
+              'mb-3 rounded-2xl px-4 py-2.5 ' +
+              (t.speaker === 'Joy'
+                ? 'bg-lavender/15 border border-lavender/25'
+                : 'bg-white/60 border border-ink/10 ml-4 sm:ml-8')
+            }
+          >
+            <span className="text-xs font-bold uppercase tracking-wide opacity-70">
+              {t.speaker === 'Joy' ? 'Joy' : 'You'}
+            </span>
+            <p className="mt-0.5 leading-relaxed">{t.text}</p>
+          </div>
         ))}
+        {joyThinking && (
+          <div className="mb-3 rounded-2xl bg-lavender/15 border border-lavender/25 px-4 py-2.5">
+            <span className="text-xs font-bold uppercase tracking-wide opacity-70">Joy</span>
+            <p className="mt-0.5 flex items-center gap-1.5 leading-relaxed">
+              <span className="inline-block h-2 w-2 rounded-full bg-lavender/60 rtj-pulse" />
+              <span className="inline-block h-2 w-2 rounded-full bg-lavender/60 rtj-pulse" style={{ animationDelay: '0.3s' }} />
+              <span className="inline-block h-2 w-2 rounded-full bg-lavender/60 rtj-pulse" style={{ animationDelay: '0.6s' }} />
+            </p>
+          </div>
+        )}
       </section>
 
       {/* ── Step card: the simplify-text demo target ── */}
@@ -642,6 +696,7 @@ function RehearsalView() {
             {micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
           </Button>
         )}
+      </div>
       </div>
 
       {/* Pipecat audio element (required for voice output) */}

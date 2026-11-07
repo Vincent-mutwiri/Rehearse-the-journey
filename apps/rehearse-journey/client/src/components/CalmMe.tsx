@@ -76,7 +76,7 @@ export default function CalmMe() {
   const [lineIndex, setLineIndex] = useState(0)
   const [replayToken, setReplayToken] = useState(0)
   const [paused, setPaused] = useState(false)
-  const [rate, setRate] = useState(0.8)
+  const [rate, setRate] = useState(0.9)
   const [volume, setVolume] = useState(1)
   const [voiceName, setVoiceName] = useState('')
   const dialogRef = useRef<HTMLDivElement>(null)

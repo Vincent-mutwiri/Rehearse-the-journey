@@ -5,7 +5,7 @@
  *   - `src/session/useRehearsalSession.ts` (Pipecat RTVI session, scenario/mode sync, async story images)
  *   - `src/speech-input/useSpeechInput.ts` (Provider-aware Browser STT vs. Pipecat mic, cancellable timers)
  *   - `src/approval/useApprovalGate.ts` (Deterministic approval controller + backend approval sync)
- *   - `src/presentation/*` (WelcomeLanding, JoyCenterpiece, ApprovalGateCard, CompanionModesPanel)
+ *   - `src/presentation/*` (WelcomeLanding, JoyCenterpiece, SettingsDrawer)
  */
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
@@ -29,11 +29,9 @@ import { LEVEL_LABELS, PROVIDER_STACK_OPTIONS } from './controller/v11ScenariosA
 import { useRehearsalSession, type RolePlayState } from './session/useRehearsalSession'
 import WelcomeLanding from './presentation/WelcomeLanding'
 import JoyCenterpiece from './presentation/JoyCenterpiece'
-import ApprovalGateCard from './presentation/ApprovalGateCard'
 import SettingsDrawer from './presentation/SettingsDrawer'
 import Dashboard, { type DashboardSection } from './components/Dashboard'
 import Directions from './components/Directions'
-import CompanionModesPanel from './presentation/CompanionModesPanel'
 import CalmMe, { CALM_ME_OPEN_EVENT } from './components/CalmMe'
 import StoryCard from './components/StoryCard'
 import { STORIES } from './stories'
@@ -230,7 +228,7 @@ function RehearsalView() {
 
   if (state === 'idle' && dashboardSection === 'directions') {
     return (
-      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-6 px-5 py-8">
+      <main className="welcome-shell mx-auto flex min-h-screen w-full max-w-[1120px] flex-col gap-6 px-5 py-8">
         <Directions
           onBack={() => setDashboardSection(null)}
           onRehearseMatatu={() => {
@@ -342,7 +340,7 @@ function RehearsalView() {
               }
               aria-label="Back to home — ends this session and returns to the dashboard"
               title="Back to home — ends this session and returns to the dashboard"
-              className="rounded-full border border-ink/15 bg-white/60 px-3 py-1 text-xs font-semibold text-ink/80 transition-colors hover:border-lavender/60 hover:bg-white"
+              className="experience-home rounded-full border border-ink/15 bg-white/60 px-3 py-1 text-sm font-semibold text-ink/80 transition-colors hover:border-lavender/60 hover:bg-white"
             >
               ← Home
             </button>
@@ -470,69 +468,34 @@ function RehearsalView() {
           </div>
         </details>
 
-        <details hidden className="rehearsal-disclosure">
-          <summary>Journey &amp; modes</summary>
-          {false && (
-          <CompanionModesPanel
-            mode={mode}
-            onSelectMode={handleSelectMode}
-            scenarioId={scenarioId}
-            chaosLevel={chaosLevel}
-            currentStepIndex={approval.controllerSnap.currentStepIndex}
-            currentSteps={currentSteps}
-            currentStepDef={currentStepDef}
-            plainWords={plainWords}
-            savedChecklist={approval.controllerSnap.savedChecklist}
-            audioPref={audioPref}
-            onToggleAudioPref={handleToggleAudioPref}
-            cameraConsent={cameraConsent}
-            onRequestCameraConsent={approval.proposeEnableCamera}
-            onRevokeCameraConsent={() => setCameraConsent(false)}
-            onProposeNext={approval.proposeNext}
-            onProposeBack={approval.proposeBack}
-            onProposeSaveChecklist={approval.proposeSaveChecklist}
-            onOpenStory={() =>
-              openStory(currentStepDef?.storyId ?? currentScenario.defaultStoryId)
-            }
-            onApproveLearnPlan={titles => {
-              approval.editChecklistDraft(titles)
-              handleSelectMode('practise')
-            }}
-            isDevMode={isDevMode}
-            activePersona={activePersona}
-            parallelOverlap={parallelOverlap}
-            onTriggerDevParallelOverlap={() => {
-              const nextOverlap = !parallelOverlap
-              setParallelOverlap(nextOverlap)
-              setActivePersona(nextOverlap ? 'joy' : 'amani')
-              if (nextOverlap) {
-                addTurn(
-                  'Joy',
-                  'Receptionist Joy: Desk 1 is ready for you! · Patient Amani: Take your time, friend—I can hold your seat.',
-                  'Joy & Amani',
-                )
-              }
-            }}
-            activeProviderStack={activeProviderStack}
-            providerStackId={providerStackId}
-            onSimulateProviderFallback={() => {
-              const supported = PROVIDER_STACK_OPTIONS.filter(p => !p.previewOnly)
-              const curIdx = supported.findIndex(p => p.id === providerStackId)
-              const nextMeta = supported[(curIdx + 1) % supported.length]
-              setProviderStackId(nextMeta.id)
-              setUsesBrowserStt(nextMeta.usesBrowserStt)
-              setProviderNotice(
-                `Switched provider stack to ${nextMeta.label} (fallback chain verified).`,
-              )
-            }}
-            providerNotice={providerNotice}
-            whiskerTraces={whiskerTraces}
-          />
+        <aside
+          aria-label="Interactive story and practice map"
+          className="rehearsal-story-rail flex w-full flex-col items-center "
+        >
+          {storyId && STORIES[storyId] ? (
+            <StoryCard
+              key={`${storySession}:${storyId}`}
+              story={{
+                ...STORIES[storyId],
+                image: storyImages[storyId] ?? STORIES[storyId].image,
+                route: storyRoutes[storyId] ?? STORIES[storyId].route,
+              }}
+              onClose={() => setStoryId(null)}
+            />
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => openStory(currentStepDef?.storyId ?? currentScenario.defaultStoryId)}
+            >
+              📖 Open Interactive Story &amp; Map
+            </Button>
           )}
-        </details>
+        </aside>
           </SettingsDrawer>
         </header>
-      <div className="rehearsal-workspace grid w-full grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_350px] lg:gap-8">
+      <div className="rehearsal-workspace grid w-full grid-cols-1 items-start gap-6">
         <div className="flex min-w-0 flex-col gap-4">
           <JoyCenterpiece
             state={state}
@@ -650,6 +613,22 @@ function RehearsalView() {
             <div className="rehearsal-controls flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
               {isConnected && (
                 <Button
+                  variant="outline"
+                  className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+                  onClick={speech.toggleMic}
+                  aria-label={speech.micEnabled ? 'Microphone on' : 'Microphone off'}
+                  title={
+                    speech.micEnabled
+                      ? 'Turn microphone off — stops speech capture'
+                      : 'Turn microphone on — speak to Joy'
+                  }
+                  aria-pressed={speech.micEnabled}
+                >
+                  {speech.micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
+                </Button>
+              )}
+              {isConnected && (
+                <Button
                   variant="secondary"
                   className="rounded-full"
                   onClick={() =>
@@ -688,56 +667,12 @@ function RehearsalView() {
                   ✕ Exit
                 </Button>
               )}
-              {isConnected && (
-                <Button
-                  variant="outline"
-                  className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
-                  onClick={speech.toggleMic}
-                  aria-label={speech.micEnabled ? 'Microphone on' : 'Microphone off'}
-                  title={
-                    speech.micEnabled
-                      ? 'Turn microphone off — stops speech capture'
-                      : 'Turn microphone on — speak to Joy'
-                  }
-                  aria-pressed={speech.micEnabled}
-                >
-                  {speech.micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
-                </Button>
-              )}
-            </div>
 
-            <ApprovalGateCard
-              proposal={approval.controllerSnap.pendingProposal}
-              onRespond={approval.respondToProposal}
-            />
+            </div>
           </div>
         </div>
 
-        <aside
-          aria-label="Interactive story and practice map"
-          className="rehearsal-story-rail flex w-full flex-col items-center lg:sticky lg:top-6"
-        >
-          {storyId && STORIES[storyId] ? (
-            <StoryCard
-              key={`${storySession}:${storyId}`}
-              story={{
-                ...STORIES[storyId],
-                image: storyImages[storyId] ?? STORIES[storyId].image,
-                route: storyRoutes[storyId] ?? STORIES[storyId].route,
-              }}
-              onClose={() => setStoryId(null)}
-            />
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full"
-              onClick={() => openStory(currentStepDef?.storyId ?? currentScenario.defaultStoryId)}
-            >
-              📖 Open Interactive Story &amp; Map
-            </Button>
-          )}
-        </aside>
+
       </div>
 
       {/* Pipecat audio element (rendered only when connected and voice output is enabled) */}

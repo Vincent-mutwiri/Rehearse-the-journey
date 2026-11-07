@@ -84,6 +84,9 @@ export default function JoyCenterpiece({
                 ? 'speaking'
                 : 'listening'
 
+  const primaryActive = (state === 'speaking' || joyThinking) && (parallelOverlap || activePersona !== 'amani')
+  const partnerActive = userSpeaking || ((state === 'speaking' || joyThinking) && (parallelOverlap || activePersona === 'amani'))
+
   return (
     <section
       aria-label="Joy, your rehearsal companion"
@@ -214,10 +217,10 @@ export default function JoyCenterpiece({
               reduceMotion={reduceMotion || stopAuto}
               className="joy-duo-mascot"
             />
-            <span className="mt-1 rounded-full bg-lavender/40 px-2.5 py-0.5 text-[11px] font-semibold">
+            <span className="joy-speaker-label">
               {primaryLabel}
             </span>
-            <div className="joy-dialogue joy-dialogue-primary" data-speaker="primary">
+            <div className="joy-dialogue joy-dialogue-primary" data-speaker="primary" data-active={primaryActive}>
               {latestPrimaryTurn
                 ? <p>{latestPrimaryTurn.text}</p>
                 : <p className="joy-dialogue-placeholder">The companion’s reply will appear here.</p>}
@@ -237,10 +240,10 @@ export default function JoyCenterpiece({
               reduceMotion={reduceMotion || stopAuto}
               className="joy-duo-mascot"
             />
-            <span className="mt-1 rounded-full bg-sage/40 px-2.5 py-0.5 text-[11px] font-semibold">
+            <span className="joy-speaker-label">
               {partnerLabel}
             </span>
-            <div className="joy-dialogue joy-dialogue-partner" data-speaker="partner">
+            <div className="joy-dialogue joy-dialogue-partner" data-speaker="partner" data-active={partnerActive}>
               {latestPartnerTurn
                 ? <p>{latestPartnerTurn.text}</p>
                 : <p className="joy-dialogue-placeholder">Your reply will appear here when you speak or send a message.</p>}

@@ -802,6 +802,9 @@ function Character({ state, encourageSignal, still }: SceneProps) {
 
   useEffect(() => () => rig.dispose(), [rig])
 
+  // Switching to demand rendering needs one final frame to apply the still pose.
+  useEffect(() => { invalidate() }, [still, invalidate])
+
   useEffect(() => {
     if (motion.current.nodSignal !== encourageSignal) {
       motion.current.nodSignal = encourageSignal

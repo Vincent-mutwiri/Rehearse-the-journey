@@ -632,16 +632,15 @@ function RehearsalView() {
           </Button>
         )}
         {isConnected && (
-          <UserAudioControlView
-            isMicEnabled={micEnabled}
-            onToggleMic={handleToggleMic}
-            noDevicePicker
-            noVisualizer
-            activeText="Microphone on"
-            inactiveText="Microphone off"
+          <Button
             variant="outline"
-            unavailableText={stopping ? 'Stopping audio…' : undefined}
-          />
+            className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
+            onClick={handleToggleMic}
+            aria-label={micEnabled ? 'Turn microphone off — stops browser speech recognition' : 'Turn microphone on — speak to Joy'}
+            aria-pressed={micEnabled}
+          >
+            {micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
+          </Button>
         )}
       </div>
 

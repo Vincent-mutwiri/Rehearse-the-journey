@@ -69,33 +69,35 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
     rec.onresult = (event) => {
       let interimText = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
+        const result = event.results[i] as unknown as { 0: { transcript: string }, isFinal?: boolean }
         const transcript = result[0]?.transcript ?? ''
-        // SpeechRecognition doesn't expose isFinal on the duck-typed type; a
-        // result with no further alternates is final. We treat the last one
-        // in the batch as final and hand it to onFinal.
-        if (i === event.results.length - 1) {
+        if (result.isFinal) {
           const trimmed = transcript.trim()
           if (trimmed) {
             onFinalRef.current(trimmed)
-            setInterim('')
-            return
           }
+        } else {
+          interimText += transcript
         }
-        interimText += transcript
       }
       setInterim(interimText)
     }
     rec.onerror = (event) => {
-      if (event.error === 'no-speech' || event.error === 'aborted') return
-      setListening(false)
+      // "no-speech" and "aborted" are normal; anything else stops listening.
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setListening(false)
+      }
     }
+    // SpeechRecognition stops after each final result even with continuous:true.
+    // Restart it if the person is still listening — this keeps the mic alive
+    // across turns. The restart is retried with a tiny delay because the
+    // recognition object needs a moment to release before it can start again.
     rec.onend = () => {
-      // Continuous recognition stops on its own after a final result; restart
-      // if the person is still listening.
       setListening((was) => {
         if (was) {
-          try { rec.start() } catch { /* already started */ }
+          setTimeout(() => {
+            try { rec.start() } catch { /* still releasing; onend will fire again */ }
+          }, 100)
           return true
         }
         return false

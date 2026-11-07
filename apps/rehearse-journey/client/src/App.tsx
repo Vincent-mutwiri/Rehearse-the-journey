@@ -27,6 +27,7 @@ import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
 import JoyMascot from '@/components/JoyMascot'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { Button } from '@/components/ui/button'
+import { Sprout, Cross, BusFront, Landmark, Signpost, MessageCircle, MicOff, Pause, Play } from 'lucide-react'
 import {
   ReadAloud,
   StopAutoAdvance,
@@ -44,10 +45,10 @@ type RolePlayState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused'
 // Only Hospital Level 1 is live; the rest are honest previews, not dead buttons.
 
 const SCENARIOS = [
-  { name: 'Hospital Reception', level: 'Level 1 · Easy Start', live: true },
-  { name: 'Matatu Stage', live: false },
-  { name: 'Government Service', live: false },
-  { name: 'Asking for Directions', live: false },
+  { name: 'Hospital Reception', level: 'Level 1 · Easy Start', live: true, icon: Cross },
+  { name: 'Matatu Stage', live: false, icon: BusFront },
+  { name: 'Government Service', live: false, icon: Landmark },
+  { name: 'Asking for Directions', live: false, icon: Signpost },
 ] as const
 
 // ── Transcript entry ─────────────────────────────────────────────────────────
@@ -330,50 +331,63 @@ function RehearsalView() {
   // ── Landing (S4.4): how `idle` renders — Joy, title, scenario cards ──
   if (state === 'idle') {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col items-center justify-center gap-8 px-5 py-10">
-        <JoyMascot state="idle" reduceMotion={reduceMotion || stopAuto} />
-        <header className="text-center">
-          <h1 ref={titleRef} tabIndex={-1} className="text-2xl font-semibold tracking-tight">Rehearse the Journey</h1>
-          <p className="mx-auto mt-2 max-w-[46ch] text-[0.95rem] leading-relaxed opacity-80">
-            Practice the conversations that feel hard, with a companion who sits with you.
-          </p>
+      <main className="welcome-shell">
+        <header className="welcome-nav">
+          <div className="welcome-brand"><Sprout aria-hidden="true" /><span>Kioo<span className="welcome-brand-subtitle">Your practice companion</span></span></div>
+          <span className="welcome-nav-note">A space to try, at your pace.</span>
         </header>
-        <div className="grid w-full gap-3" role="group" aria-label="Practice scenarios">
-          {SCENARIOS.map(s => (
-            <Button
-              key={s.name}
-              variant="outline"
-              size="lg"
-              disabled={!s.live}
-              onClick={s.live ? handleStart : undefined}
-              className={
-                'h-auto flex-col items-start gap-1 rounded-2xl px-5 py-4 text-left ' +
-                (s.live
-                  ? 'border-lavender bg-lavender/15 hover:border-lavender hover:bg-lavender/25'
-                  : 'border-mist bg-white/50 opacity-80')
-              }
-            >
-              <span className="flex w-full items-center justify-between gap-3 font-semibold">
-                {s.name}
-                {!s.live && (
-                  <span className="rounded-full bg-sage/25 px-2.5 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wide">
-                    Coming in v1.1
-                  </span>
-                )}
+
+        <section className="welcome-hero" aria-labelledby="welcome-title">
+          <div className="welcome-intro">
+            <h1 id="welcome-title" ref={titleRef} tabIndex={-1}>Rehearse<br />the Journey</h1>
+            <p>Everyday conversations can feel a little easier with a little practice. Try them with Joy, one step at a time.</p>
+            <ul className="welcome-reassurances" aria-label="You’re in control">
+              <li><MessageCircle aria-hidden="true" />Speak or type</li>
+              <li><Pause aria-hidden="true" />Pause whenever you need</li>
+            </ul>
+          </div>
+          <div className="welcome-companion">
+            <div className="welcome-companion-backdrop" aria-hidden="true" />
+            <JoyMascot state="idle" reduceMotion={reduceMotion || stopAuto} className="welcome-joy" />
+            <p className="welcome-greeting">Hi, I’m Joy.<br /><strong>Let’s try it together.</strong></p>
+          </div>
+        </section>
+
+        <section className="welcome-scenarios" aria-labelledby="scenario-heading">
+          <div className="welcome-section-heading">
+            <h2 id="scenario-heading">Where shall we start?</h2>
+            <p>Choose a conversation to practice.</p>
+          </div>
+          <div className="scenario-layout" role="group" aria-label="Practice scenarios">
+            <Button variant="scenario" onClick={handleStart} className="scenario-start">
+              <span className="scenario-symbol"><Cross aria-hidden="true" /></span>
+              <span className="scenario-start-copy">
+                <span className="scenario-level">Level 1 · Easy start</span>
+                <span className="scenario-title">Hospital Reception</span>
+                <span className="scenario-description">Practice arriving, asking for help, and talking to a friendly receptionist.</span>
               </span>
-              {'level' in s && s.level && (
-                <span className="text-sm font-normal opacity-70">{s.level}</span>
-              )}
+              <span className="scenario-action">Start practice <Play aria-hidden="true" data-icon="inline-end" /></span>
             </Button>
-          ))}
-        </div>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            <div className="scenario-previews">
+              <p className="scenario-preview-heading">More everyday journeys, coming soon</p>
+              {SCENARIOS.slice(1).map(s => (
+                <Button key={s.name} variant="preview" disabled className="scenario-preview">
+                  <span className="scenario-preview-icon"><s.icon aria-hidden="true" /></span>
+                  <span>{s.name}</span>
+                  <span className="scenario-coming">Coming soon</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        </section>
+        {error && <p role="alert" className="welcome-error">{error}</p>}
+        <footer className="welcome-footer"><MicOff aria-hidden="true" /><p>Your microphone starts off. This is fictional practice with AI; use made-up details.</p></footer>
       </main>
     )
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-8 px-5 py-8">
+    <main className="rehearsal-shell mx-auto flex min-h-screen w-full max-w-[640px] flex-col gap-8 px-5 py-8">
       {readAloud && (
         <Button variant="outline" className="sticky top-3 z-10 self-start" onClick={() => {
           ReadAloud.stop()

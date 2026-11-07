@@ -23,6 +23,9 @@
 }
 
 body {
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100vh;
   margin: 0;
   min-width: 320px;
   background: var(--cream);
@@ -114,4 +117,82 @@ button { min-height: 44px; }
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Welcome: a shared table for a small practice conversation. */
+.welcome-shell {
+  width: min(100% - 64px, 1040px);
+  margin: 0 auto;
+  padding: 28px 0 22px;
+}
+.welcome-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 1px solid var(--mist); }
+.welcome-brand { display: flex; align-items: center; gap: 10px; font-size: 25px; font-weight: 650; letter-spacing: -1px; }
+.welcome-brand > svg { width: 31px; height: 31px; color: #526d5a; }
+.welcome-brand-subtitle { display: block; margin-top: 1px; font-size: 11px; font-weight: 450; letter-spacing: 0; }
+.welcome-nav-note { font-size: 13px; color: #655e76; }
+.welcome-hero { display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: 36px; padding: 34px 0 28px; }
+.welcome-intro h1 { margin: 0 0 18px; font-size: clamp(38px, 4.8vw, 58px); font-weight: 580; line-height: 1.06; letter-spacing: -2.5px; }
+.welcome-intro > p { max-width: 41ch; margin: 0; font-size: 16px; line-height: 1.75; color: #655e76; }
+.welcome-reassurances { display: flex; flex-wrap: wrap; gap: 12px 22px; list-style: none; padding: 0; margin: 22px 0 0; font-size: 12px; font-weight: 500; }
+.welcome-reassurances li { display: flex; align-items: center; gap: 7px; }
+.welcome-reassurances svg { width: 15px; height: 15px; color: #655e76; }
+.welcome-companion { position: relative; display: grid; justify-items: center; align-content: center; min-height: 320px; isolation: isolate; }
+.welcome-companion-backdrop { position: absolute; inset: 5px 35px 35px; z-index: -1; background: var(--mist); border-radius: 48% 48% 42% 42%; }
+.welcome-companion .welcome-joy { width: 280px; height: 300px; }
+.welcome-greeting { position: relative; margin: -24px 0 0 85px; padding: 13px 20px; border: 1px solid #d8d0e7; border-radius: 18px 18px 18px 4px; background: #fffdfa; font-size: 13px; line-height: 1.6; }
+.welcome-greeting strong { font-weight: 550; }
+.welcome-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.welcome-section-heading h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.6px; }
+.welcome-section-heading p { margin: 0; font-size: 13px; color: #655e76; }
+.scenario-layout { display: grid; grid-template-columns: 1.08fr 1fr; gap: 30px; }
+.scenario-start { width: 100%; height: auto; min-height: 228px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 12px; padding: 22px 24px; border-radius: 20px; text-align: left; white-space: normal; }
+.scenario-symbol { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; background: var(--cream); color: var(--ink); }
+.scenario-start-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.scenario-level { font-size: 11px; font-weight: 550; color: #655e76; }
+.scenario-title { font-size: 22px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.2; }
+.scenario-description { max-width: 38ch; font-size: 13px; font-weight: 400; line-height: 1.6; color: #655e76; }
+.scenario-action { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-top: 10px; margin-top: auto; font-size: 13px; font-weight: 650; }
+.scenario-action > span { font-size: 19px; }
+.scenario-previews { display: flex; flex-direction: column; }
+.scenario-preview-heading { margin: 0 0 9px; font-size: 12px; color: #655e76; }
+.scenario-preview { display: flex; align-items: center; justify-content: flex-start; width: 100%; height: auto; min-height: 63px; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--mist); border-radius: 0; font-size: 13px; font-weight: 500; text-align: left; white-space: normal; }
+.scenario-preview:last-child { border-bottom: 0; }
+.scenario-preview-icon { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border: 1px solid var(--mist); border-radius: 10px; color: #655e76; }
+.scenario-coming { margin-left: auto; flex-shrink: 0; font-size: 10px; font-weight: 400; color: #655e76; }
+.welcome-footer { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 28px; padding-top: 17px; border-top: 1px solid var(--mist); font-size: 11px; line-height: 1.6; color: #655e76; }
+.welcome-footer svg { width: 14px; height: 14px; flex-shrink: 0; }
+.welcome-footer p { margin: 0; }
+.welcome-error { margin-top: 16px; color: #9b422a; font-size: 13px; }
+.rehearsal-shell { margin: 0 auto; padding: 28px 24px; }
+@media (min-width: 1440px) { .welcome-shell { padding-top: 36px; } .welcome-hero { padding-top: 44px; padding-bottom: 38px; } }
+@media (max-width: 700px) {
+  .welcome-shell { width: calc(100% - 40px); padding-top: 20px; }
+  .welcome-nav { padding-bottom: 16px; }
+  .welcome-brand { font-size: 23px; }
+  .welcome-nav-note { display: none; }
+  .welcome-hero { grid-template-columns: 1fr 180px; gap: 12px; padding: 27px 0 25px; }
+  .welcome-intro h1 { font-size: 35px; letter-spacing: -1.5px; margin-bottom: 12px; }
+  .welcome-intro > p { font-size: 13px; line-height: 1.65; }
+  .welcome-reassurances { margin-top: 15px; gap: 9px; font-size: 10px; }
+  .welcome-companion { min-height: 230px; }
+  .welcome-companion .welcome-joy { width: 190px; height: 220px; }
+  .welcome-companion-backdrop { inset: 12px 0 25px; }
+  .welcome-greeting { margin: -15px 0 0 10px; padding: 9px 12px; font-size: 10px; }
+  .welcome-section-heading { flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .welcome-section-heading h2 { font-size: 20px; }
+  .scenario-layout { grid-template-columns: 1fr; gap: 20px; }
+  .scenario-start { min-height: 0; padding: 20px; gap: 10px; }
+  .scenario-title { font-size: 21px; }
+  .scenario-preview { min-height: 55px; }
+  .welcome-footer { align-items: flex-start; justify-content: flex-start; margin-top: 18px; }
+}
+@media (max-width: 430px) {
+  .welcome-hero { grid-template-columns: 1fr 125px; gap: 8px; }
+  .welcome-intro h1 { font-size: 31px; letter-spacing: -1.3px; }
+  .welcome-companion .welcome-joy { width: 145px; height: 185px; }
+  .welcome-companion { min-height: 200px; }
+  .welcome-companion-backdrop { inset: 12px -4px 25px; }
+  .welcome-greeting { font-size: 9px; padding: 8px 10px; margin-left: 0; }
+  .welcome-reassurances { flex-direction: column; }
+  .scenario-coming { font-size: 9px; }
 }

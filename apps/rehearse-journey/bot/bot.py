@@ -121,6 +121,8 @@ async def bot(runner_args):
             telemetry,
             fallback_coordinator: FallbackChainCoordinator,
             context=None,
+            image_http_options=None,
+            image_api_key=None,
             **kwargs,
         ):
             super().__init__(**kwargs)
@@ -129,9 +131,30 @@ async def bot(runner_args):
             self._telemetry = telemetry
             self._fallback = fallback_coordinator
             self._context = context
+            # Image generation (SC.1/SD.2 companion): the proxy HttpOptions +
+            # key, used to generate the scene illustration for story_open.
+            self._image_http_options = image_http_options
+            self._image_api_key = image_api_key
 
         async def _send_flow_events(self, decision):
             for event in decision.rtvi_events:
+                # Attach a generated scene illustration to story_open payloads.
+                # The client falls back to the SVG placeholder if this is None
+                # or generation fails, so this never blocks the demo.
+                if event.get("type") == "story_open" and event.get("story_id"):
+                    try:
+                        from image_gen import generate_story_image
+                        image_url = await generate_story_image(
+                            event["story_id"],
+                            api_key=self._image_api_key,
+                            http_options=self._image_http_options,
+                        )
+                        if image_url:
+                            event["image"] = image_url
+                    except Exception as exc:
+                        logger.warning(
+                            f"Story image generation failed for {event['story_id']}: {exc}"
+                        )
                 await self.send_server_message(event)
 
         async def _handle_send_text(self, data, message_id, user_id=None):
@@ -282,6 +305,8 @@ async def bot(runner_args):
             telemetry=telemetry,
             fallback_coordinator=fallback_coordinator,
             context=context,
+            image_http_options=_proxy_http_options(),
+            image_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
         ),
     )
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)

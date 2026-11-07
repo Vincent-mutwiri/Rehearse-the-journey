@@ -196,6 +196,19 @@ button { min-height: 44px; }
   cursor: pointer;
 }
 .story-card-close svg { width: 15px; height: 15px; }
+/* Scene illustration from the bot (Gemini image gen through the proxy).
+   Soft, rounded, sits between the header and the slide body as a
+   scene-setter. aria-hidden because it's decorative — the slides and
+   Joy's narration carry the actual content. */
+.story-card-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 200px;
+  object-fit: cover;
+  border-bottom: 1px solid var(--mist);
+  background: var(--mist);
+}
 .story-card-body {
   padding: 16px;
   min-height: 120px;

@@ -110,14 +110,6 @@ const STATUS_NARRATION: Record<RolePlayState, string> = {
 function RehearsalView() {
   const client = usePipecatClient()
   const [state, setState] = useState<RolePlayState>('idle')
-  const [selectedLevel, setSelectedLevel] = useState<LevelId>('1')
-  const [clarityEnabled, setClarityEnabled] = useState(false)
-  const [clarityPercentage, setClarityPercentage] = useState<ClarificationPercentage>(40)
-  const [clarificationHint, setClarificationHint] = useState('')
-  const [showClarificationHint, setShowClarificationHint] = useState(false)
-  const [clarificationOpportunities, setClarificationOpportunities] = useState(0)
-  const [clarificationQuestions, setClarificationQuestions] = useState(0)
-  const [clarificationsResolved, setClarificationsResolved] = useState(0)
   const [turns, setTurns] = useState<Turn[]>([])
   const [typedInput, setTypedInput] = useState('')
   const [error, setError] = useState('')
@@ -239,14 +231,9 @@ function RehearsalView() {
     return () => clearInterval(id)
   }, [readAloud])
 
-  const addTurn = useCallback((speaker: string, text: string) => {
-    setTurns(prev => [...prev, { speaker, text, id: turnId.current++ }])
+  const addTurn = useCallback((speaker: 'Joy' | 'You', text: string, speakerLabel?: string) => {
+    setTurns(prev => [...prev, { speaker, speakerLabel, text, id: turnId.current++ }])
     if (speaker === 'You') setNod(n => n + 1)
-  }, [])
-
-  const parseSpeaker = useCallback((text: string) => {
-    const match = text.match(/^(Joy|Amani|Nurse Wanjiku|Hospital Attendant|Attendant):\s*(.*)$/s)
-    return match ? { speaker: match[1], text: match[2] } : { speaker: 'Joy', text }
   }, [])
 
   // Browser STT for the gemini_text path. The Lovable proxy carries REST but
@@ -263,17 +250,9 @@ function RehearsalView() {
     setInterimSpoken('')
     setJoyThinking(true)
     void client.sendText(text, { run_immediately: true, audio_response: true })
-      .then(() => {
-        if (clarityEnabled && isClarificationQuestion(text)) {
-          setClarificationQuestions((count) => count + 1)
-          if (clarificationHint) setClarificationsResolved((count) => count + 1)
-          setClarificationHint('')
-          setShowClarificationHint(false)
-        }
-        addTurn('You', text)
-      })
+      .then(() => addTurn('You', text))
       .catch(() => setError('Your speech could not be sent. Try again or type below.'))
-  }, [client, state, addTurn, clarityEnabled, clarificationHint])
+  }, [client, state, addTurn])
   const browserSTT = useBrowserSTT({ onFinal: sendSpoken })
 
   // Show interim STT text so the person knows the mic is hearing them.
@@ -285,13 +264,7 @@ function RehearsalView() {
   // Listen for bot transcript events
   useRTVIClientEvent(RTVIEvent.BotTranscript, (data: { text: string }) => {
     if (active.current && data.text.trim()) {
-      const parsed = parseSpeaker(data.text)
-      if (clarityEnabled && /\b(put .* table|go upstairs|wait over there|over there)\b/i.test(parsed.text)) {
-        setClarificationOpportunities((count) => count + 1)
-        setClarificationHint(clarificationHintFor(parsed.text))
-        setShowClarificationHint(false)
-      }
-      addTurn(parsed.speaker, parsed.text)
+      addTurn('Joy', data.text)
       setJoyThinking(false)  // Joy's first word arrived — no longer "thinking"
       setNod(n => n + 1)     // Joy's turn complete → sage nod
     }
@@ -336,17 +309,62 @@ function RehearsalView() {
       }
     }
   })
-  // Bot-driven interactive stories: the bot sends {type:'story_open', story_id}
-  // (or 'story_close') as an RTVI server message when a flow node declares one.
+  // Bot-driven interactive stories & v1.1 Flow / Multi-Agent / Provider events
   useRTVIClientEvent(RTVIEvent.ServerMessage, (data: unknown) => {
     const msg = (data as { data?: unknown })?.data ?? data
     if (!msg || typeof msg !== 'object') return
-    const m = msg as { type?: string; story_id?: string }
-    if (m.type === 'story_open' && typeof m.story_id === 'string' && STORIES[m.story_id]) {
+    const m = msg as Record<string, unknown>
+    const type = typeof m.type === 'string' ? m.type : ''
+
+    if (type === 'story_open' && typeof m.story_id === 'string' && STORIES[m.story_id]) {
       setStorySession(s => s + 1)
       setStoryId(m.story_id)
-    } else if (m.type === 'story_close') {
+      // If the bot attached a generated scene illustration (a data URL),
+      // patch it onto the story so the StoryCard shows it. Falls back to the
+      // slides' own content when absent.
+      if (typeof m.image === 'string' && m.image.startsWith('data:image/')) {
+        STORIES[m.story_id].image = m.image
+      }
+      setWhiskerTraces(prev => [...prev.slice(-9), `in | StoryOpen | ${m.story_id}${m.image ? ' +image' : ''}`])
+    } else if (type === 'story_close') {
       setStoryId(null)
+    } else if (type === 'flow_node_transition' && typeof m.node_id === 'string') {
+      const spk = (typeof m.speaker === 'string' ? m.speaker : 'joy') as JoyPersona
+      setActivePersona(spk)
+      setWhiskerTraces(prev => [
+        ...prev.slice(-9),
+        `in | FlowTransition | ${m.node_id} (${String(m.step_title ?? '')})`,
+      ])
+    } else if (type === 'approval_proposal' && typeof m.target_node === 'string') {
+      approvalControllerRef.current.proposeNavigation(
+        m.target_node,
+        'model',
+        `Advance rehearsal to "${String(m.target_title ?? m.target_node)}"?`,
+      )
+      syncController()
+      setWhiskerTraces(prev => [...prev.slice(-9), `in | ApprovalProposal | -> ${m.target_node}`])
+    } else if (type === 'speaker_changed') {
+      const nextSpeaker = (typeof m.active_speaker === 'string'
+        ? m.active_speaker
+        : typeof m.speaker === 'string'
+          ? m.speaker
+          : 'joy') as JoyPersona
+      setActivePersona(nextSpeaker)
+      setParallelOverlap(Boolean(m.parallel_fanout))
+      setWhiskerTraces(prev => [...prev.slice(-9), `in | SpeakerChanged | ${nextSpeaker}`])
+    } else if (type === 'parallel_fanout') {
+      setParallelOverlap(true)
+      setWhiskerTraces(prev => [...prev.slice(-9), 'in | ParallelFanout | Joy + Amani overlap'])
+    } else if (type === 'parallel_resolved' && typeof m.chosen_speaker === 'string') {
+      setActivePersona(m.chosen_speaker as JoyPersona)
+      setParallelOverlap(false)
+      setWhiskerTraces(prev => [...prev.slice(-9), `in | ParallelResolved | chosen=${m.chosen_speaker}`])
+    } else if (type === 'provider_selected' && typeof m.stack_id === 'string') {
+      setProviderStackId(m.stack_id)
+    } else if (type === 'provider_switched' && typeof m.reason === 'string') {
+      if (typeof m.to_stack === 'string') setProviderStackId(m.to_stack)
+      setProviderNotice(m.reason)
+      setWhiskerTraces(prev => [...prev.slice(-9), `in | ProviderSwitched | ${m.reason}`])
     }
   })
 
@@ -372,16 +390,29 @@ function RehearsalView() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleStart = async () => {
+  const handleStart = async (
+    nextScenario: ScenarioId = scenarioId,
+    nextLevel: 1 | 2 | 3 | 4 = chaosLevel,
+  ) => {
     if (!client || active.current || stoppingRef.current) return
     const current = ++generation.current
     active.current = true
+    setScenarioId(nextScenario)
+    setChaosLevel(nextLevel)
+    const scen = SCENARIO_CATALOG[nextScenario]
+    const stepsForScenario = scen.stepsByLevel[nextLevel]
+    setActivePersona(scen.persona)
+    setParallelOverlap(false)
+    approvalControllerRef.current.startNewSession(
+      stepsForScenario.map(s => s.id),
+      [
+        `Scenario: ${scen.name} (${LEVEL_LABELS[nextLevel].title})`,
+        'Carry pretend clinic card or practice note',
+        'Pause or ask companion to repeat at any time',
+      ],
+    )
+    syncController()
     setError('')
-    setClarificationHint('')
-    setShowClarificationHint(false)
-    setClarificationOpportunities(0)
-    setClarificationQuestions(0)
-    setClarificationsResolved(0)
     setMicEnabled(false)
     client.enableMic(false)
     setState('connecting')
@@ -391,15 +422,6 @@ function RehearsalView() {
         await client.disconnect()
         return
       }
-      // Tell the backend which validated hospital configuration to use before
-      // it emits the opening greeting.
-      client.sendClientMessage('set-level', {
-        level_id: selectedLevel,
-        clarificationPractice: {
-          enabled: clarityEnabled,
-          ambiguityPercentage: clarityPercentage,
-        },
-      })
       setState('listening')
     } catch {
       if (current === generation.current) {
@@ -410,6 +432,29 @@ function RehearsalView() {
       }
     }
   }
+
+  const handleRespondApproval = useCallback(
+    (proposal: ApprovalProposal, approved: boolean) => {
+      const res = approvalControllerRef.current.respondToProposal({
+        approvalId: proposal.approvalId,
+        actionId: proposal.actionId,
+        toolCallId: proposal.toolCallId,
+        sessionId: proposal.sessionId,
+        approved,
+      })
+      syncController()
+      if (proposal.type === 'enable_camera') {
+        setCameraConsent(approved && res.applied)
+      } else if (proposal.type === 'go_to_step' && approved && res.applied && proposal.targetStepId) {
+        const matchedStep = currentSteps.find(s => s.id === proposal.targetStepId)
+        if (matchedStep) {
+          setActivePersona(matchedStep.speaker)
+          setParallelOverlap(Boolean(matchedStep.parallelFanout))
+        }
+      }
+    },
+    [currentSteps, syncController],
+  )
 
   const stopSession = useCallback(async (next: 'paused' | 'ended') => {
     active.current = false
@@ -423,6 +468,10 @@ function RehearsalView() {
     setJoyThinking(false)
     setInterimSpoken('')
     setStoryId(null)
+    setParallelOverlap(false)
+    if (next === 'ended') setCameraConsent(false)
+    approvalControllerRef.current.pause()
+    syncController()
     browserSTT.stop()  // stop browser STT too — don't leave the mic listening
     client?.enableMic(false)
     const tracks = client?.tracks()
@@ -439,25 +488,7 @@ function RehearsalView() {
       stoppingRef.current = false
       setStopping(false)
     }
-  }, [client])
-
-  // Decompress is independent of Pipecat, but an active rehearsal must yield its
-  // audio. It stays paused after Decompress closes; resuming remains explicit.
-  useEffect(() => {
-    const pauseForCalmMe = () => {
-      if (active.current) void stopSession('paused')
-    }
-    window.addEventListener(CALM_ME_OPEN_EVENT, pauseForCalmMe)
-    return () => window.removeEventListener(CALM_ME_OPEN_EVENT, pauseForCalmMe)
-  }, [stopSession])
-
-  const handleChangeLevel = useCallback(async () => {
-    await stopSession('ended')
-    setTurns([])
-    setTypedInput('')
-    setError('')
-    setState('idle')
-  }, [stopSession])
+  }, [client, syncController])
 
   const handleSendText = useCallback(async () => {
     const text = typedInput.trim()
@@ -471,12 +502,6 @@ function RehearsalView() {
     try {
       await client.sendText(text, { run_immediately: true, audio_response: true })
       if (active.current && current === generation.current) {
-        if (clarityEnabled && isClarificationQuestion(text)) {
-          setClarificationQuestions((count) => count + 1)
-          if (clarificationHint) setClarificationsResolved((count) => count + 1)
-          setClarificationHint('')
-          setShowClarificationHint(false)
-        }
         addTurn('You', text)
         setTypedInput('')
       }
@@ -488,25 +513,7 @@ function RehearsalView() {
       sendingRef.current = false
       setSending(false)
     }
-  }, [client, typedInput, addTurn, state, clarityEnabled, clarificationHint])
-
-  const sendPracticePrompt = useCallback(async (prompt: string) => {
-    if (!client || !active.current || sendingRef.current ||
-        (state !== 'listening' && state !== 'speaking')) return
-    sendingRef.current = true
-    setSending(true)
-    setError('')
-    setJoyThinking(true)
-    try {
-      await client.sendText(prompt, { run_immediately: true, audio_response: true })
-      addTurn('You', prompt)
-    } catch {
-      setError('That request could not be sent. Try typing instead.')
-    } finally {
-      sendingRef.current = false
-      setSending(false)
-    }
-  }, [client, state, addTurn])
+  }, [client, typedInput, addTurn, state])
 
   const handleToggleMic = () => {
     if (!client || !active.current) return
@@ -610,87 +617,49 @@ function RehearsalView() {
             <p>Choose a conversation to practice.</p>
           </div>
           <div className="scenario-layout" role="group" aria-label="Practice scenarios">
-            <div className="scenario-start flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <span className="scenario-symbol"><Cross aria-hidden="true" /></span>
-                <div>
-                  <span className="scenario-level">Hospital Reception</span>
-                  <span className="scenario-title block">Choose your level</span>
-                </div>
-              </div>
-              <div className="grid gap-3" role="list" aria-label="Hospital Reception difficulty levels">
-                {HOSPITAL_LEVELS.map(level => (
-                  <button
-                    key={level.id}
-                    type="button"
-                    aria-pressed={selectedLevel === level.id}
-                    onClick={() => setSelectedLevel(level.id)}
-                    className={'rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lavender ' +
-                      (selectedLevel === level.id ? 'border-lavender bg-lavender/25' : 'border-ink/15 bg-white/60 hover:border-lavender/60')}
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-semibold">Level {level.id} · {level.name}</span>
-                      <span className="text-xs font-semibold opacity-75">People: {level.people}</span>
-                    </span>
-                    <span className="mt-1 block text-sm opacity-80">{level.description}</span>
-                  </button>
-                ))}
-              </div>
-              <section className="clarity-practice" aria-labelledby="clarity-title">
-                <div className="clarity-heading">
-                  <div>
-                    <h3 id="clarity-title">Ask for Clarity</h3>
-                    <p>Practise asking specific questions when someone gives unclear instructions.</p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={clarityEnabled}
-                    aria-label={`Ask for Clarity. ${clarityEnabled ? 'On' : 'Off'}`}
-                    className={`clarity-switch${clarityEnabled ? ' is-on' : ''}`}
-                    onClick={() => setClarityEnabled((enabled) => !enabled)}
-                  >
-                    <span className="clarity-switch-thumb" aria-hidden="true" />
-                    <span>{clarityEnabled ? 'ON' : 'OFF'}</span>
-                  </button>
-                </div>
-                {clarityEnabled && (
-                  <fieldset className="clarity-options">
-                    <legend>How often should instructions be unclear?</legend>
-                    {([
-                      [20, 'A little practice'],
-                      [40, 'Regular practice'],
-                      [60, 'More practice'],
-                    ] as const).map(([percentage, label]) => (
-                      <label key={percentage}>
-                        <input
-                          type="radio"
-                          name="clarity-percentage"
-                          value={percentage}
-                          checked={clarityPercentage === percentage}
-                          onChange={() => setClarityPercentage(percentage)}
-                        />
-                        <span><strong>{percentage}%</strong> {label}</span>
-                      </label>
-                    ))}
-                    <p className="clarity-note">About {clarityPercentage}% of suitable instructions will be intentionally unclear.</p>
-                  </fieldset>
-                )}
-              </section>
-              <Button variant="scenario" onClick={handleStart} className="scenario-start">
-                <span className="scenario-action">Start Level {selectedLevel} practice <Play aria-hidden="true" data-icon="inline-end" /></span>
-              </Button>
-            </div>
+            <Button variant="scenario" onClick={() => void handleStart('hospital', chaosLevel)} className="scenario-start">
+              <span className="scenario-symbol"><Cross aria-hidden="true" /></span>
+              <span className="scenario-start-copy">
+                <span className="scenario-level">{LEVEL_LABELS[chaosLevel].title}</span>
+                <span className="scenario-title">Hospital Reception</span>
+                <span className="scenario-description">Practice arriving, asking for help, and talking to a friendly receptionist.</span>
+              </span>
+              <span className="scenario-action">Start practice <Play aria-hidden="true" data-icon="inline-end" /></span>
+            </Button>
             <div className="scenario-previews">
-              <p className="scenario-preview-heading">More everyday journeys, coming soon</p>
-              {SCENARIOS.map(s => (
-                <Button key={s.name} variant="preview" disabled className="scenario-preview">
+              <p className="scenario-preview-heading">More everyday journeys (v1.1 Pipecat Flows)</p>
+              {SCENARIOS.slice(1).map(s => (
+                <Button
+                  key={s.id}
+                  variant="preview"
+                  onClick={() => void handleStart(s.id, chaosLevel)}
+                  className="scenario-preview"
+                >
                   <span className="scenario-preview-icon"><s.icon aria-hidden="true" /></span>
                   <span>{s.name}</span>
-                  <span className="scenario-coming">Coming soon</span>
+                  <span className="scenario-coming">{s.level}</span>
                 </Button>
               ))}
             </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="Practice difficulty level">
+            <span className="font-semibold opacity-75">Level:</span>
+            {([1, 2, 3, 4] as const).map(lvl => (
+              <button
+                key={lvl}
+                type="button"
+                aria-pressed={chaosLevel === lvl}
+                onClick={() => setChaosLevel(lvl)}
+                className={
+                  'min-h-[36px] rounded-full border px-3 py-1 font-medium transition-colors ' +
+                  (chaosLevel === lvl
+                    ? 'border-lavender bg-lavender/30'
+                    : 'border-ink/15 bg-white/60 hover:border-lavender/50')
+                }
+              >
+                {LEVEL_LABELS[lvl].title}
+              </button>
+            ))}
           </div>
         </section>
         {error && <p role="alert" className="welcome-error">{error}</p>}
@@ -706,18 +675,51 @@ function RehearsalView() {
         aria-label="Joy, your rehearsal companion"
         className="flex flex-col items-center gap-4 lg:sticky lg:top-8 lg:h-fit lg:min-h-[60vh] lg:flex-1 lg:items-center lg:justify-center"
       >
-        <JoyMascot
-          state={joyThinking && state === 'listening' ? 'idle' : state}
-          encourageSignal={nod}
-          reduceMotion={reduceMotion || stopAuto}
-          className="lg:scale-110"
-        />
+        <div
+          className="joy-centerpiece-stage"
+          data-parallel-overlap={parallelOverlap ? 'true' : 'false'}
+        >
+          <div className="joy-stage-backdrop" aria-hidden="true" />
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <JoyMascot
+              state={joyThinking && state === 'listening' ? 'idle' : state}
+              thinking={joyThinking}
+              persona={activePersona}
+              encourageSignal={nod}
+              reduceMotion={reduceMotion || stopAuto}
+              className="lg:scale-110"
+            />
+            {parallelOverlap && (
+              <JoyMascot
+                state={state === 'speaking' ? 'speaking' : 'listening'}
+                persona="amani"
+                companionLabel="Patient Amani, fellow visitor"
+                encourageSignal={nod}
+                reduceMotion={reduceMotion || stopAuto}
+                className="scale-95"
+              />
+            )}
+          </div>
+          <span className="joy-status-pill" aria-hidden="true">
+            {state === 'speaking'
+              ? `🔊 ${currentStepDef?.speakerLabel ?? 'Joy'} speaking`
+              : joyThinking
+                ? '💭 Joy is thinking…'
+                : state === 'listening'
+                  ? (micEnabled ? '🎤 Listening to your voice' : '✨ Ready for your turn')
+                  : state === 'paused'
+                    ? '⏸ Resting (paused)'
+                    : '👋 Practice companion'}
+          </span>
+        </div>
         <div className="text-center">
           <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Rehearse the Journey</h1>
           <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-lavender/60 px-3 py-1">Hospital Reception</span>
-            <span className="rounded-full bg-peach/70 px-3 py-1">Level {selectedLevel} · {getHospitalLevel(selectedLevel).name}</span>
-            <span className="rounded-full bg-mist px-3 py-1">{getHospitalLevel(selectedLevel).characters.join(' · ')}</span>
+            <span className="rounded-full bg-lavender/60 px-3 py-1">{currentScenario.name}</span>
+            <span className="rounded-full bg-peach/70 px-3 py-1">{LEVEL_LABELS[chaosLevel].title}</span>
+            <span className="rounded-full bg-mist px-3 py-1">
+              {parallelOverlap ? 'Receptionist Joy & Patient Amani' : currentStepDef?.speakerLabel ?? currentScenario.personaLabel}
+            </span>
           </div>
         </div>
         {storyId && STORIES[storyId] && (
@@ -839,38 +841,18 @@ function RehearsalView() {
         {state === 'connecting' && <p>⏳ Connecting to Joy…</p>}
         {state === 'paused' && <p>Paused — audio stopped and mic off. Reconnect to start a new exchange with Joy.</p>}
         {state === 'ended' && (
-          <>
-            <p>
-              Session ended.{' '}
-              <Button
-                size="sm"
-                disabled={stopping}
-                onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}
-              >
-                Start again
-              </Button>
-            </p>
-            {clarityEnabled && (
-              <section className="clarity-reflection" aria-labelledby="reflection-title">
-                <h3 id="reflection-title">Your Practice Reflection</h3>
-                <p>You had {clarificationOpportunities} clarification {clarificationOpportunities === 1 ? 'opportunity' : 'opportunities'}, asked for more information {clarificationQuestions} {clarificationQuestions === 1 ? 'time' : 'times'}, and resolved {clarificationsResolved}.</p>
-                <p>Asking questions helped make the instructions clearer.</p>
-              </section>
-            )}
-          </>
+          <p>
+            Session ended.{' '}
+            <Button
+              size="sm"
+              disabled={stopping}
+              onClick={() => { setTurns([]); setTypedInput(''); setError(''); setState('idle') }}
+            >
+              Start again
+            </Button>
+          </p>
         )}
       </div>
-      {isConnected && clarityEnabled && clarificationHint && (
-        <aside className="clarification-hint" aria-live="polite">
-          {!showClarificationHint ? (
-            <Button variant="outline" className="rounded-full" onClick={() => setShowClarificationHint(true)}>
-              Need a hint?
-            </Button>
-          ) : (
-            <p><strong>Try asking:</strong> {clarificationHint}</p>
-          )}
-        </aside>
-      )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       {/* ── Transcript ── */}
@@ -893,7 +875,7 @@ function RehearsalView() {
             }
           >
             <span className="text-xs font-bold uppercase tracking-wide opacity-70">
-              {t.speaker}
+              {t.speakerLabel ?? (t.speaker === 'Joy' ? 'Joy' : 'You')}
             </span>
             <p className="mt-0.5 leading-relaxed">{t.text}</p>
           </div>
@@ -960,34 +942,12 @@ function RehearsalView() {
       {/* ── Controls: always visible, never buried ── */}
       <div className="flex flex-wrap gap-3" role="group" aria-label="Rehearsal controls">
         {isConnected && (
-          <>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              disabled={sending}
-              onClick={() => void sendPracticePrompt('Please repeat your last instruction slowly, using simpler words.')}
-              aria-label="Ask Joy to repeat the last instruction"
-            >
-              Repeat
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              disabled={sending}
-              onClick={() => void sendPracticePrompt('I need help. Please give me one simple example of what I can say next.')}
-              aria-label="Ask Joy for help and an example"
-            >
-              Help
-            </Button>
-          </>
-        )}
-        {isConnected && (
           <Button variant="secondary" className="rounded-full" onClick={() => void stopSession('paused')} aria-label="Pause — stops audio and microphone">
             ⏸ Pause
           </Button>
         )}
         {state === 'paused' && (
-          <Button disabled={stopping} className="rounded-full" onClick={handleStart} aria-label="Reconnect with microphone off">
+          <Button disabled={stopping} className="rounded-full" onClick={() => void handleStart(scenarioId, chaosLevel)} aria-label="Reconnect with microphone off">
             Reconnect with mic off
           </Button>
         )}
@@ -1006,23 +966,477 @@ function RehearsalView() {
             variant="outline"
             className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
             onClick={handleToggleMic}
-            aria-label={micEnabled ? 'Turn microphone off — stops browser speech recognition' : 'Turn microphone on — speak to Joy'}
+            aria-label={micEnabled ? 'Microphone on' : 'Microphone off'}
+            title={micEnabled ? 'Turn microphone off — stops browser speech recognition' : 'Turn microphone on — speak to Joy'}
             aria-pressed={micEnabled}
           >
             {micEnabled ? '🎤 Mic on' : '🎤 Mic off'}
           </Button>
         )}
-        {(isConnected || state === 'paused') && (
-          <Button
-            variant="outline"
-            className="rounded-full border-ink/25 text-ink hover:bg-ink/5"
-            onClick={() => void handleChangeLevel()}
-            aria-label="Change hospital rehearsal level"
-          >
-            Change level
-          </Button>
-        )}
       </div>
+
+      {/* ── SA.3 / SB.4 / SD.4 / SE.5: Controller Approval Gate ── */}
+      {controllerSnap.pendingProposal && (
+        <section
+          role="region"
+          aria-label="Approval gate"
+          className="rounded-2xl border-2 border-lavender bg-lavender/15 p-4 text-sm"
+        >
+          <div className="flex items-center gap-2 font-semibold">
+            <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>Action approval required ({controllerSnap.pendingProposal.type})</span>
+          </div>
+          <p className="mt-1.5 leading-relaxed">{controllerSnap.pendingProposal.description}</p>
+          {controllerSnap.pendingProposal.checklistSnapshot && (
+            <ul className="mt-2 list-inside list-disc rounded-xl bg-white/70 p-3 text-xs">
+              {controllerSnap.pendingProposal.checklistSnapshot.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              className="rounded-full"
+              onClick={() =>
+                controllerSnap.pendingProposal &&
+                handleRespondApproval(controllerSnap.pendingProposal, true)
+              }
+            >
+              Approve
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() =>
+                controllerSnap.pendingProposal &&
+                handleRespondApproval(controllerSnap.pendingProposal, false)
+              }
+            >
+              Deny (stay put)
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {/* ── v1.1 Full Pipecat Architecture Studio (SA–SF) ── */}
+      <section
+        aria-label="v1.1 Pipecat Architecture Studio"
+        className="rounded-2xl border border-ink/10 bg-white/70 p-5 text-sm"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold">
+            Pipecat v1.1 Architecture · {currentStepDef?.title ?? 'Flow Step'}
+          </h2>
+          <span className="rounded-full bg-sage/30 px-3 py-0.5 text-xs font-semibold">
+            Step {controllerSnap.currentStepIndex + 1} of {currentSteps.length}
+          </span>
+        </div>
+
+        {/* SE.1: Mode Router (Practise / Learn / Explore / Live help) sharing one profile */}
+        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Companion modes">
+          {(
+            [
+              { id: 'practise', label: 'Practise (Flows)', icon: Layers },
+              { id: 'learn', label: 'Learn (Step Planner)', icon: BookOpen },
+              { id: 'explore', label: 'Explore (Maps & Routes)', icon: MapPin },
+              { id: 'live-help', label: 'Live help (Camera Sign)', icon: Camera },
+            ] as const
+          ).map(m => (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={mode === m.id}
+              onClick={() => setMode(m.id)}
+              className={
+                'inline-flex min-h-[38px] items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ' +
+                (mode === m.id
+                  ? 'border-lavender bg-lavender/30'
+                  : 'border-ink/15 bg-white/70 hover:border-lavender/50')
+              }
+            >
+              <m.icon className="h-3.5 w-3.5" aria-hidden="true" />
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* SA.2–SA.4 & SB.2–SB.3: Flow step progression, approval gate proposals, & multi-agent handoff */}
+        {mode === 'practise' && (
+          <div className="mt-4 space-y-3 border-t border-ink/10 pt-3">
+            <p className="text-xs leading-relaxed opacity-85">
+              <strong>Current Flow Node ({currentStepDef?.id}):</strong>{' '}
+              {plainWords ? currentStepDef?.simplifiedDescription : currentStepDef?.description}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-xs"
+                onClick={() => {
+                  approvalControllerRef.current.proposeNext('direct')
+                  syncController()
+                }}
+              >
+                Propose Next Step (Approve/Deny)
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-xs"
+                onClick={() => {
+                  approvalControllerRef.current.proposeBack()
+                  syncController()
+                }}
+              >
+                Propose Back
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-xs"
+                onClick={() => {
+                  approvalControllerRef.current.proposeSaveChecklist()
+                  syncController()
+                }}
+              >
+                Save Rehearsal Checklist
+              </Button>
+              {chaosLevel === 4 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full text-xs"
+                  onClick={() => {
+                    const nextOverlap = !parallelOverlap
+                    setParallelOverlap(nextOverlap)
+                    setActivePersona(nextOverlap ? 'joy' : 'amani')
+                    if (nextOverlap) {
+                      addTurn(
+                        'Joy',
+                        'Receptionist Joy: Desk 1 is ready for you! · Patient Amani: Take your time, friend—I can hold your seat.',
+                        'Joy & Amani',
+                      )
+                    }
+                  }}
+                >
+                  <Users className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                  {parallelOverlap ? 'Resolve Two-Voice Overlap' : 'Trigger Level 4 Parallel Overlap'}
+                </Button>
+              )}
+            </div>
+            {controllerSnap.savedChecklist && (
+              <p className="rounded-xl bg-sage/20 px-3 py-2 text-xs">
+                <strong>Saved checklist ({controllerSnap.savedChecklist.length} items):</strong>{' '}
+                {controllerSnap.savedChecklist.join(' · ')}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* SE.2: Learn Mode (Goal -> RehearsalSteps with editable distress ratings) */}
+        {mode === 'learn' && (
+          <div className="mt-4 space-y-3 border-t border-ink/10 pt-3">
+            <label htmlFor="learn-goal-input" className="block text-xs font-semibold">
+              Learn Mode — Turn a goal into an approved rehearsal plan (no voice required):
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="learn-goal-input"
+                type="text"
+                value={learnGoal}
+                onChange={e => setLearnGoal(e.target.value)}
+                className="min-h-[40px] flex-1 rounded-xl border border-ink/15 bg-white px-3 py-1.5 text-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-xs"
+                onClick={() => setLearnSteps(buildLearnStepsForGoal(learnGoal))}
+              >
+                Build Steps
+              </Button>
+            </div>
+            <ul className="space-y-2">
+              {learnSteps.map((ls, idx) => (
+                <li key={ls.id} className="rounded-xl border border-ink/10 bg-mist/30 p-3 text-xs">
+                  <div className="flex items-center justify-between gap-2 font-semibold">
+                    <span>{ls.title}</span>
+                    <label className="flex items-center gap-1 font-normal">
+                      <span>Distress (0–10):</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={ls.distressRating}
+                        aria-label={`Distress rating for ${ls.title}`}
+                        onChange={e => {
+                          const v = Math.max(0, Math.min(10, Number(e.target.value) || 0))
+                          setLearnSteps(prev =>
+                            prev.map((item, i) => (i === idx ? { ...item, distressRating: v } : item)),
+                          )
+                        }}
+                        className="w-14 rounded border border-ink/20 bg-white px-1.5 py-0.5 text-center"
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-1 opacity-85">
+                    {plainWords ? ls.plainDescription : ls.description}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <Button
+              size="sm"
+              className="rounded-full text-xs"
+              onClick={() => {
+                approvalControllerRef.current.editChecklistDraft(learnSteps.map(s => s.title))
+                syncController()
+                setMode('practise')
+              }}
+            >
+              Approve Plan & Load in Practise Mode
+            </Button>
+          </div>
+        )}
+
+        {/* SE.3: Explore Mode (Maps grounding + Candidate Routes + Kiswahili translation label) */}
+        {mode === 'explore' && (
+          <div className="mt-4 space-y-3 border-t border-ink/10 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold">
+                Explore Mode — Grounded Nairobi Location Q&A & Candidate Routes
+              </span>
+              <button
+                type="button"
+                onClick={() => setExploreLang(l => (l === 'en' ? 'sw' : 'en'))}
+                className="min-h-[32px] rounded-full border border-ink/15 bg-white px-3 py-1 text-xs font-medium"
+              >
+                Language: {exploreLang === 'en' ? 'English' : 'Kiswahili (labelled translation)'}
+              </button>
+            </div>
+            <input
+              type="text"
+              aria-label="Ask a location question"
+              value={exploreQuery}
+              onChange={e => setExploreQuery(e.target.value)}
+              className="min-h-[40px] w-full rounded-xl border border-ink/15 bg-white px-3 py-1.5 text-xs"
+            />
+            {(() => {
+              const q = exploreQuery.toLowerCase()
+              const isUnknown = ['step-free', 'wheelchair', 'queue', 'fee', 'procedure', 'ramp'].some(
+                k => q.includes(k),
+              )
+              return (
+                <div className="rounded-xl border border-ink/10 bg-mist/30 p-3 text-xs space-y-1.5">
+                  <p>
+                    <strong>Retrieved Map Fact:</strong>{' '}
+                    {isUnknown
+                      ? 'Unknown from verified public map sources.'
+                      : 'Kenyatta National Hospital Campus Bus Stage is on Hospital Road, Upper Hill, Nairobi (-1.3008, 36.8070), served by public matatu routes 7C and 46.'}
+                  </p>
+                  <p>
+                    <strong>Generated Explanation:</strong>{' '}
+                    {isUnknown
+                      ? 'Public map data does not verify step-free entrances, live queue lengths, or internal hospital procedures. Please confirm directly with facility reception.'
+                      : 'Visitors alighting at Hospital Road stage follow the signed pedestrian walkway. Fictional rehearsal here does not represent real hospital procedures.'}
+                  </p>
+                  {exploreLang === 'sw' && (
+                    <p className="rounded-lg bg-peach/25 p-2">
+                      <strong>Generated Kiswahili Translation (from English-grounded source):</strong>{' '}
+                      {isUnknown
+                        ? 'Haijulikani kwenye vyanzo vya ramani: tafadhali thibitisha lango au foleni moja kwa moja na mapokezi.'
+                        : 'Kituo cha basi cha Hospital Road kiko Upper Hill, Nairobi (njia 7C na 46).'}
+                    </p>
+                  )}
+                  <p className="opacity-75">
+                    Sources:{' '}
+                    <a
+                      href="https://www.openstreetmap.org/#map=16/-1.3008/36.8070"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      OpenStreetMap Nairobi Upper Hill
+                    </a>{' '}
+                    ·{' '}
+                    <a
+                      href="https://www.openstreetmap.org/relation/3492650"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      Digital Matatus Route 46
+                    </a>
+                  </p>
+                </div>
+              )
+            })()}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-xs"
+                onClick={() => setRouteRequested(r => !r)}
+              >
+                {routeRequested ? 'Hide Candidate Route' : 'Request Candidate Route (CBD → Upper Hill)'}
+              </Button>
+            </div>
+            {routeRequested && (
+              <div className="rounded-xl border border-peach bg-peach/15 p-3 text-xs">
+                <strong>Candidate path — confirm with your co-designer (3.4 km, ~18 min):</strong>
+                <ol className="mt-1 list-inside list-decimal space-y-0.5">
+                  <li>Board Route 7C or 46 at Kencom Stage, CBD.</li>
+                  <li>Alight at Hospital Road Stage, Upper Hill.</li>
+                  <li>Confirm roadside signage with your co-designer (never advances rehearsal).</li>
+                </ol>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SD.1–SD.4 & SE.4: Live Help Camera ("Explain this sign") with approval gate & safety boundary */}
+        {mode === 'live-help' && (
+          <div className="mt-4 space-y-3 border-t border-ink/10 pt-3">
+            <div
+              role="note"
+              className="rounded-xl border border-peach bg-peach/20 p-3 text-xs font-medium"
+            >
+              <strong>Safety boundary:</strong> Explanation only; confirm with staff or signage.
+              Never used for obstacle detection, location truth, or navigation advice.
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {!cameraConsent ? (
+                <Button
+                  size="sm"
+                  className="rounded-full text-xs"
+                  onClick={() => {
+                    approvalControllerRef.current.proposeEnableCamera()
+                    syncController()
+                  }}
+                >
+                  <Camera className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                  Request Camera Consent (Approve/Deny)
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full text-xs"
+                  onClick={() => setCameraConsent(false)}
+                >
+                  Turn Camera Off (Voice & Typed Continue)
+                </Button>
+              )}
+              <button
+                type="button"
+                aria-pressed={devFrameOverlay}
+                onClick={() => setDevFrameOverlay(d => !d)}
+                className="min-h-[34px] rounded-full border border-ink/15 bg-white px-3 py-1 text-xs"
+              >
+                {devFrameOverlay ? 'Hide "What am I seeing?" frame' : 'Show "What am I seeing?" debug frame'}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SIGN_CARDS.map(sc => (
+                <button
+                  key={sc.id}
+                  type="button"
+                  aria-pressed={selectedSignId === sc.id}
+                  onClick={() => setSelectedSignId(sc.id)}
+                  className={
+                    'min-h-[34px] rounded-full border px-3 py-1 text-xs font-medium ' +
+                    (selectedSignId === sc.id
+                      ? 'border-lavender bg-lavender/25'
+                      : 'border-ink/15 bg-white')
+                  }
+                >
+                  {sc.title}
+                </button>
+              ))}
+            </div>
+            {(() => {
+              const card = SIGN_CARDS.find(c => c.id === selectedSignId) ?? SIGN_CARDS[0]
+              return (
+                <div className="rounded-xl border border-ink/10 bg-mist/30 p-3 text-xs space-y-1.5">
+                  {devFrameOverlay && (
+                    <div className="rounded-lg border border-dashed border-ink/30 bg-white/80 p-2 font-mono text-[11px]">
+                      [Camera Frame Preview · {cameraConsent ? 'STREAMING OPT-IN' : 'CONSENT OFF'}]:{' '}
+                      {card.signText}
+                    </div>
+                  )}
+                  <p>
+                    <strong>Joy’s Sign Explanation ({plainWords ? 'Plainer words' : 'Standard'}):</strong>{' '}
+                    {plainWords ? card.plainExplanation : card.standardExplanation}
+                  </p>
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* SC.1–SC.3 & SF.4: Provider Stack Selection, Runtime Fallback, & Whisker/Tail Dev Telemetry */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-ink/10 pt-3 text-xs">
+          <div>
+            <strong>Active Provider Stack:</strong> {activeProviderStack.label}{' '}
+            <span className="opacity-75">({activeProviderStack.reason})</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              aria-pressed={!audioPref}
+              onClick={() => setAudioPref(a => !a)}
+              className="min-h-[32px] rounded-full border border-ink/15 bg-white px-3 py-1 font-medium"
+            >
+              {audioPref ? 'Audio Pref: On' : 'Audio Pref: Off (Text-Only)'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const order = ['gemini_live', 'deepgram_openai_cartesia', 'gemini_proxy', 'openai', 'text_only']
+                const nextIdx = (order.indexOf(providerStackId) + 1) % order.length
+                const nextId = order[nextIdx]
+                setProviderStackId(nextId)
+                const nextMeta = PROVIDER_STACK_OPTIONS.find(p => p.id === nextId)
+                setProviderNotice(
+                  `Switched provider stack to ${nextMeta?.label ?? nextId} (fallback chain verified).`,
+                )
+              }}
+              className="min-h-[32px] rounded-full border border-ink/15 bg-white px-3 py-1 font-medium"
+            >
+              Simulate Provider Fallback
+            </button>
+            <button
+              type="button"
+              aria-pressed={whiskerOpen}
+              onClick={() => setWhiskerOpen(w => !w)}
+              className="inline-flex min-h-[32px] items-center gap-1 rounded-full border border-ink/15 bg-white px-3 py-1 font-medium"
+            >
+              <Activity className="h-3.5 w-3.5" aria-hidden="true" />
+              Whisker / Tail
+            </button>
+          </div>
+        </div>
+        {providerNotice && (
+          <p role="status" className="mt-2 rounded-xl bg-peach/25 px-3 py-1.5 text-xs">
+            ⚡ {providerNotice}
+          </p>
+        )}
+        {whiskerOpen && (
+          <div className="mt-2 rounded-xl border border-ink/15 bg-ink p-3 font-mono text-[11px] text-cream">
+            <div className="mb-1 font-semibold">
+              [Tail Session Dashboard] scenario={scenarioId} level=L{chaosLevel} mode={mode} speaker=
+              {activePersona} stack={activeProviderStack.id}
+            </div>
+            {whiskerTraces.map((tr, i) => (
+              <div key={i} className="opacity-85">
+                [Whisker] {tr}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
       </div>
 
       {/* Pipecat audio element (required for voice output) */}
@@ -1047,7 +1461,6 @@ export default function App() {
   return (
     <PipecatClientProvider client={client}>
       <RehearsalView />
-      <CalmMe />
     </PipecatClientProvider>
   )
 }

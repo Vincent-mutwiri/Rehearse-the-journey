@@ -40,6 +40,19 @@ export default function StoryCard({ story, onClose }: StoryCardProps) {
         </button>
       </header>
 
+      {/* Scene illustration from the bot (Gemini image gen through the proxy).
+          Falls back to nothing when absent — the slides carry their own
+          FictionalMap SVG content either way. */}
+      {story.image && (
+        <img
+          src={story.image}
+          alt=""
+          aria-hidden="true"
+          className="story-card-image"
+          loading="eager"
+        />
+      )}
+
       <div className="story-card-body" aria-live="polite" key={slide.id}>
         {slide.kind === 'custom' && slide.render ? (
           slide.render()

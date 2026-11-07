@@ -1,13 +1,24 @@
+import type { JoyPersona } from './JoyMascot'
+
+const PLACEHOLDER_PRIMARY: Record<JoyPersona, string> = {
+  joy: '#a89bd4',
+  amani: '#8fb39b',
+  otieno: '#d9a477',
+  wanjiku: '#8e9ed6',
+  maina: '#82b3a8',
+}
+
 /** Keep the companion visible while WebGL loads, or when it is unavailable. */
-export default function JoyPlaceholder() {
+export default function JoyPlaceholder({ persona = 'joy' }: { persona?: JoyPersona } = {}) {
+  const bodyColor = PLACEHOLDER_PRIMARY[persona] ?? PLACEHOLDER_PRIMARY.joy
   return (
     <svg className="joy-placeholder" viewBox="0 0 200 240" aria-hidden="true" focusable="false">
       <ellipse cx="100" cy="226" rx="76" ry="11" fill="#f4c6a6" opacity="0.16" />
-      <ellipse cx="100" cy="225" rx="65" ry="8" fill="#a89bd4" opacity="0.18" />
-      <g fill="#a89bd4">
+      <ellipse cx="100" cy="225" rx="65" ry="8" fill={bodyColor} opacity="0.18" />
+      <g fill={bodyColor}>
         <rect x="77" y="184" width="16" height="34" rx="8" />
         <rect x="107" y="184" width="16" height="34" rx="8" />
-        <path d="M74 128 Q65 133 63 172 M126 128 Q135 133 137 172" fill="none" stroke="#a89bd4" strokeWidth="14" strokeLinecap="round" />
+        <path d="M74 128 Q65 133 63 172 M126 128 Q135 133 137 172" fill="none" stroke={bodyColor} strokeWidth="14" strokeLinecap="round" />
         <path d="M87 112 Q70 121 70 151 Q62 176 76 187 Q100 200 124 187 Q138 176 130 151 Q130 121 113 112Z" />
         <ellipse cx="100" cy="76" rx="47" ry="45" />
       </g>

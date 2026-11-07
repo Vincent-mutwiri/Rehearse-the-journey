@@ -22,6 +22,9 @@ class FlowNode:
     approval_target_step: Optional[str] = None
     handoff_to: Optional[str] = None
     parallel_fanout: bool = False
+    # Optional interactive story the client shows when this node is entered.
+    # Must match a key in the client's stories registry.
+    story_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,7 @@ HOSPITAL_L1_NODES: Dict[str, FlowNode] = {
             "Say thank you when you are ready to finish.'"
         ),
         next_node_id="close",
+        story_id="hospital-waiting-area",
     ),
     "close": FlowNode(
         id="close",
@@ -186,6 +190,7 @@ HOSPITAL_L3_NODES: Dict[str, FlowNode] = {
         expected_keywords=["yes", "thanks", "okay", "done", "finish"],
         fallback_prompt="Say: 'You did great handling the room change. Say thank you to finish.'",
         next_node_id="close",
+        story_id="hospital-room-4",
     ),
     "close": HOSPITAL_L1_NODES["close"],
 }
@@ -276,6 +281,7 @@ MATATU_NODES: Dict[str, FlowNode] = {
         expected_keywords=["shukisha", "stop", "stage", "here", "next", "dropoff", "thank"],
         fallback_prompt="Invite them to say 'Stop at the next stage please' or 'Shukisha hapa tafadhali.'",
         next_node_id="close",
+        story_id="matatu-stage-route",
     ),
     "close": FlowNode(
         id="close",
@@ -325,6 +331,7 @@ GOVERNMENT_NODES: Dict[str, FlowNode] = {
         expected_keywords=["no", "thanks", "thank you", "counter", "okay", "repeat", "clear"],
         fallback_prompt="Say: 'Counter 3 is straight ahead. Say thank you when ready to finish.'",
         next_node_id="close",
+        story_id="gov-counter-directions",
     ),
     "close": FlowNode(
         id="close",
@@ -364,6 +371,7 @@ DIRECTIONS_NODES: Dict[str, FlowNode] = {
         next_node_id="close",
         requires_approval=True,
         approval_target_step="close",
+        story_id="directions-landmarks",
     ),
     "close": FlowNode(
         id="close",

@@ -39,6 +39,19 @@ class FlowEngine:
         self.pending_approval_node_id: Optional[str] = None
         self.history: List[str] = [self.current_node_id]
 
+    @staticmethod
+    def _story_events(node: FlowNode) -> List[Dict[str, Any]]:
+        """Interactive-story trigger for the client, if this node declares one."""
+        if not node.story_id:
+            return []
+        return [
+            {
+                "type": "story_open",
+                "story_id": node.story_id,
+                "node_id": node.id,
+            }
+        ]
+
     @property
     def current_node(self) -> FlowNode:
         return self.flow.nodes[self.current_node_id]
@@ -66,6 +79,7 @@ class FlowEngine:
                 "speaker": node.speaker,
             }
         ]
+        events.extend(self._story_events(node))
         return FlowTurnDecision(
             node_id=node.id,
             step_title=node.step_title,
@@ -150,6 +164,7 @@ class FlowEngine:
                     "branched": True,
                 }
             )
+            events.extend(self._story_events(div_node))
             return FlowTurnDecision(
                 node_id=div_node.id,
                 step_title=div_node.step_title,
@@ -237,6 +252,7 @@ class FlowEngine:
                 "speaker": next_node.speaker,
             }
         )
+        events.extend(self._story_events(next_node))
 
         reassurance = (
             "The visitor declined or had no pretend card—reassure them warmly that it is completely okay. "

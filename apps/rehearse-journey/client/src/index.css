@@ -151,6 +151,144 @@ button { min-height: 44px; }
   }
 }
 
+/* ── Interactive story card (shown next to Joy's mascot) ─────────────────── */
+.story-card {
+  width: min(100%, 340px);
+  border: 1px solid color-mix(in oklab, var(--lavender) 35%, transparent);
+  border-radius: 20px;
+  background: #fffdfa;
+  overflow: hidden;
+  text-align: left;
+}
+.story-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--mist);
+}
+.story-card-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.story-card-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #655e76;
+}
+.story-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+.story-card-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--mist);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.story-card-close svg { width: 15px; height: 15px; }
+.story-card-body {
+  padding: 16px;
+  min-height: 120px;
+  animation: story-card-in 0.25s ease-out;
+}
+@keyframes story-card-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.story-card-text h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.story-card-text p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #655e76;
+}
+.story-map { margin: 0; }
+.story-map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--mist);
+  background: var(--cream);
+}
+.story-map-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink);
+  pointer-events: none;
+}
+.story-map-sub {
+  font-size: 9px;
+  fill: #655e76;
+  pointer-events: none;
+}
+.story-map figcaption {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #655e76;
+  text-align: center;
+}
+.story-card-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--mist);
+}
+.story-card-progress {
+  display: flex;
+  gap: 5px;
+}
+.story-card-dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--mist);
+}
+.story-card-dot.is-active { background: var(--lavender); }
+.story-card-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.story-card-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
+  border-radius: 9999px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.story-card-nav-btn:hover:not(:disabled) { background: var(--mist); }
+.story-card-nav-btn:disabled { opacity: 0.45; cursor: default; }
+.story-card-nav-btn svg { width: 14px; height: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .story-card-body { animation: none; }
+}
+
 /* Welcome: a shared table for a small practice conversation. */
 .welcome-shell {
   width: min(100% - 64px, 1040px);

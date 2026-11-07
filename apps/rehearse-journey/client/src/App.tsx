@@ -22,15 +22,31 @@ import {
 } from '@pipecat-ai/client-react'
 import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js'
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport'
-import { UserAudioControlView } from '@/components/pipecat/user-audio-control'
 import { AudioVisualizerBar } from '@/components/pipecat/audio-visualizer-bar'
-import JoyMascot from '@/components/JoyMascot'
-import CalmMe, { CALM_ME_OPEN_EVENT } from '@/components/CalmMe'
+import JoyMascot, { type JoyPersona } from '@/components/JoyMascot'
+import StoryCard from '@/components/StoryCard'
+import { STORIES } from './stories'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { useBrowserSTT } from '@/lib/useBrowserSTT'
 import { Button } from '@/components/ui/button'
-import { Sprout, Cross, BusFront, Landmark, Signpost, MessageCircle, MicOff, Pause, Play } from 'lucide-react'
-import { HOSPITAL_LEVELS, getHospitalLevel, type LevelId } from './levels'
+import {
+  Sprout,
+  Cross,
+  BusFront,
+  Landmark,
+  Signpost,
+  MessageCircle,
+  MicOff,
+  Pause,
+  Play,
+  Camera,
+  MapPin,
+  BookOpen,
+  Layers,
+  ShieldCheck,
+  Activity,
+  Users,
+} from 'lucide-react'
 import {
   ReadAloud,
   StopAutoAdvance,
@@ -39,6 +55,20 @@ import {
   simplifyStepText,
   ORIGINAL_STEP_TEXT,
 } from './toolkitAdapters'
+import {
+  RehearsalApprovalController,
+  type ApprovalProposal,
+} from './controller/approvalController'
+import {
+  SCENARIO_CATALOG,
+  LEVEL_LABELS,
+  PROVIDER_STACK_OPTIONS,
+  SIGN_CARDS,
+  buildLearnStepsForGoal,
+  type RehearsalMode,
+  type ScenarioId,
+  type LearnStepDraft,
+} from './controller/v11ScenariosAndModes'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,32 +77,16 @@ type RolePlayState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused'
 // ── Scenarios (S4.4 landing) ─────────────────────────────────────────────────
 // Only Hospital Level 1 is live; the rest are honest previews, not dead buttons.
 
-const SCENARIOS = [
-  { name: 'Matatu Stage', live: false, icon: BusFront },
-  { name: 'Government Service', live: false, icon: Landmark },
-  { name: 'Asking for Directions', live: false, icon: Signpost },
-] as const
+const SCENARIOS: Array<{ id: ScenarioId; name: string; level: string; live: boolean; icon: typeof Cross }> = [
+  { id: 'hospital', name: 'Hospital Reception', level: 'Level 1 · Easy Start', live: true, icon: Cross },
+  { id: 'matatu', name: 'Matatu Stage', level: 'Levels 1–4 · v1.1', live: true, icon: BusFront },
+  { id: 'government', name: 'Government Service', level: 'Levels 1–4 · v1.1', live: true, icon: Landmark },
+  { id: 'directions', name: 'Asking for Directions', level: 'Levels 1–4 · v1.1', live: true, icon: Signpost },
+]
 
 // ── Transcript entry ─────────────────────────────────────────────────────────
 
-interface Turn { speaker: string; text: string; id: number }
-
-type ClarificationPercentage = 20 | 40 | 60
-
-const CLARIFICATION_QUESTION = /\b(what do you mean|be specific|which one|which table|which floor|which room|where exactly|where should i go|explain|more detail|didn'?t understand|sijaelewa|unamaanisha nini|eleza vizuri|ni wapi hasa|ni meza gani|hiyo .* gani)\b/i
-const CLARIFICATION_HINTS = [
-  { match: /table/i, hint: 'Which table should I use?' },
-  { match: /upstairs|up/i, hint: 'Which floor and room should I go to?' },
-  { match: /wait|there|over there/i, hint: 'Where exactly should I wait?' },
-]
-
-function isClarificationQuestion(text: string) {
-  return CLARIFICATION_QUESTION.test(text)
-}
-
-function clarificationHintFor(text: string) {
-  return CLARIFICATION_HINTS.find(({ match }) => match.test(text))?.hint ?? 'Could you explain that more specifically?'
-}
+interface Turn { speaker: 'Joy' | 'You'; speakerLabel?: string; text: string; id: number }
 
 // Rotating tips: this element advances on a timer, so the toolkit's
 // stop-auto-advance adapter has something real to hold still.
@@ -133,6 +147,60 @@ function RehearsalView() {
   // Interim speech-to-text from the browser STT — shows what Joy "hears"
   // before the transcript is final, so the person knows the mic is working.
   const [interimSpoken, setInterimSpoken] = useState('')
+  // Bot-driven interactive story next to the mascot. storySession remounts
+  // the card so reopening the same story restarts at slide one.
+  const [storyId, setStoryId] = useState<string | null>(null)
+  const [storySession, setStorySession] = useState(0)
+
+  // ── v1.1 Full Pipecat Architecture state (SA–SF) ─────────────────────────
+  const [scenarioId, setScenarioId] = useState<ScenarioId>('hospital')
+  const [chaosLevel, setChaosLevel] = useState<1 | 2 | 3 | 4>(1)
+  const [mode, setMode] = useState<RehearsalMode>('practise')
+  const [activePersona, setActivePersona] = useState<JoyPersona>('joy')
+  const [parallelOverlap, setParallelOverlap] = useState(false)
+  const [audioPref, setAudioPref] = useState(true)
+  const [providerStackId, setProviderStackId] = useState<string>('gemini_proxy')
+  const [providerNotice, setProviderNotice] = useState<string>('')
+  const [cameraConsent, setCameraConsent] = useState(false)
+  const [devFrameOverlay, setDevFrameOverlay] = useState(false)
+  const [selectedSignId, setSelectedSignId] = useState<string>('outpatient_b')
+  const [learnGoal, setLearnGoal] = useState('prepare for my first hospital visit')
+  const [learnSteps, setLearnSteps] = useState<LearnStepDraft[]>(() =>
+    buildLearnStepsForGoal('prepare for my first hospital visit'),
+  )
+  const [exploreQuery, setExploreQuery] = useState('Where is the Hospital Road bus stage?')
+  const [exploreLang, setExploreLang] = useState<'en' | 'sw'>('en')
+  const [routeRequested, setRouteRequested] = useState(false)
+  const [whiskerOpen, setWhiskerOpen] = useState(false)
+  const [whiskerTraces, setWhiskerTraces] = useState<string[]>([
+    'in | TransportReady | SmallWebRTC SDP offer ready',
+    'out | FlowOpening | Step 1 · Arrive & state your visit',
+  ])
+
+  const approvalControllerRef = useRef<RehearsalApprovalController>(
+    new RehearsalApprovalController(
+      SCENARIO_CATALOG.hospital.stepsByLevel[1].map(s => s.id),
+      [
+        'Carry pretend clinic card or appointment note',
+        'Ask Receptionist Joy to repeat directions if needed',
+      ],
+    ),
+  )
+  const [controllerSnap, setControllerSnap] = useState(() =>
+    approvalControllerRef.current.getSnapshot(),
+  )
+  const syncController = useCallback(() => {
+    setControllerSnap(approvalControllerRef.current.getSnapshot())
+  }, [])
+
+  const currentScenario = SCENARIO_CATALOG[scenarioId]
+  const currentSteps = currentScenario.stepsByLevel[chaosLevel]
+  const currentStepDef =
+    currentSteps[Math.min(controllerSnap.currentStepIndex, currentSteps.length - 1)] ??
+    currentSteps[0]
+  const activeProviderStack =
+    PROVIDER_STACK_OPTIONS.find(p => p.id === (audioPref ? providerStackId : 'text_only')) ??
+    PROVIDER_STACK_OPTIONS[0]
 
   const motionReduced = useReducedMotion(reduceMotion)
   const landing = state === 'idle'
@@ -268,6 +336,20 @@ function RehearsalView() {
       }
     }
   })
+  // Bot-driven interactive stories: the bot sends {type:'story_open', story_id}
+  // (or 'story_close') as an RTVI server message when a flow node declares one.
+  useRTVIClientEvent(RTVIEvent.ServerMessage, (data: unknown) => {
+    const msg = (data as { data?: unknown })?.data ?? data
+    if (!msg || typeof msg !== 'object') return
+    const m = msg as { type?: string; story_id?: string }
+    if (m.type === 'story_open' && typeof m.story_id === 'string' && STORIES[m.story_id]) {
+      setStorySession(s => s + 1)
+      setStoryId(m.story_id)
+    } else if (m.type === 'story_close') {
+      setStoryId(null)
+    }
+  })
+
   useRTVIClientEvent(RTVIEvent.Error, () => {
     if (active.current) setError('Joy could not complete that response. Try again or exit and reconnect.')
   })
@@ -340,6 +422,7 @@ function RehearsalView() {
     setAloudSpeaking(false)
     setJoyThinking(false)
     setInterimSpoken('')
+    setStoryId(null)
     browserSTT.stop()  // stop browser STT too — don't leave the mic listening
     client?.enableMic(false)
     const tracks = client?.tracks()
@@ -637,6 +720,13 @@ function RehearsalView() {
             <span className="rounded-full bg-mist px-3 py-1">{getHospitalLevel(selectedLevel).characters.join(' · ')}</span>
           </div>
         </div>
+        {storyId && STORIES[storyId] && (
+          <StoryCard
+            key={`${storySession}:${storyId}`}
+            story={STORIES[storyId]}
+            onClose={() => setStoryId(null)}
+          />
+        )}
       </section>
 
       {/* ── Conversation: the right column on wide screens, the full width below Joy ── */}

@@ -1,0 +1,321 @@
+/**
+ * Interactive stories shown next to Joy's mascot.
+ *
+ * The bot opens a story by sending an RTVI server message
+ * `{ type: "story_open", story_id }`; the id must match a key in STORIES.
+ *
+ * A slide is either plain text (`title` + `body`) or a `render` slot that
+ * returns any React node — that is the generic content slot maps, images,
+ * or richer widgets plug into later.
+ */
+
+import type { ReactNode } from 'react'
+
+export interface StorySlide {
+  id: string
+  kind?: 'text' | 'custom'
+  title?: string
+  body?: string
+  /** Generic content slot: any React node (map, diagram, widget). */
+  render?: () => ReactNode
+}
+
+export interface StoryDef {
+  id: string
+  title: string
+  kicker?: string
+  slides: StorySlide[]
+}
+
+/* ── Fictional map slide ────────────────────────────────────────────────────
+ * A tiny SVG floor-plan/map for practice stories. All locations are
+ * fictional — labelled as such, never real directions. */
+
+interface MapRoom {
+  x: number
+  y: number
+  w: number
+  h: number
+  label: string
+  sub?: string
+  tone?: 'lavender' | 'peach' | 'sage' | 'mist'
+}
+
+const ROOM_FILL: Record<NonNullable<MapRoom['tone']>, string> = {
+  lavender: '#a89bd4',
+  peach: '#f4c6a6',
+  sage: '#8fb39b',
+  mist: '#e8e2f0',
+}
+
+function FictionalMap({
+  rooms,
+  route,
+  marker,
+  caption,
+}: {
+  rooms: MapRoom[]
+  route?: [number, number][]
+  marker?: { x: number; y: number; label: string }
+  caption: string
+}) {
+  return (
+    <figure className="story-map">
+      <svg viewBox="0 0 340 210" role="img" aria-label={caption}>
+        {rooms.map(room => (
+          <g key={room.label}>
+            <rect
+              x={room.x}
+              y={room.y}
+              width={room.w}
+              height={room.h}
+              rx={10}
+              fill={ROOM_FILL[room.tone ?? 'mist']}
+              stroke="#3a3550"
+              strokeOpacity={0.18}
+            />
+            <text
+              x={room.x + room.w / 2}
+              y={room.y + room.h / 2 - (room.sub ? 4 : -4)}
+              textAnchor="middle"
+              className="story-map-label"
+            >
+              {room.label}
+            </text>
+            {room.sub && (
+              <text
+                x={room.x + room.w / 2}
+                y={room.y + room.h / 2 + 12}
+                textAnchor="middle"
+                className="story-map-sub"
+              >
+                {room.sub}
+              </text>
+            )}
+          </g>
+        ))}
+        {route && route.length > 1 && (
+          <polyline
+            points={route.map(([x, y]) => `${x},${y}`).join(' ')}
+            fill="none"
+            stroke="#3a3550"
+            strokeWidth={2.5}
+            strokeDasharray="1 7"
+            strokeLinecap="round"
+          />
+        )}
+        {marker && (
+          <g>
+            <circle cx={marker.x} cy={marker.y} r={7} fill="#fbf7f2" stroke="#3a3550" strokeWidth={2} />
+            <circle cx={marker.x} cy={marker.y} r={3} fill="#3a3550" />
+            <text x={marker.x} y={marker.y - 12} textAnchor="middle" className="story-map-sub">
+              {marker.label}
+            </text>
+          </g>
+        )}
+      </svg>
+      <figcaption>{caption}</figcaption>
+    </figure>
+  )
+}
+
+/* ── Story registry ───────────────────────────────────────────────────────── */
+
+export const STORIES: Record<string, StoryDef> = {
+  'hospital-waiting-area': {
+    id: 'hospital-waiting-area',
+    title: 'Finding Waiting Area B',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Waiting Area B is on your left',
+        body: 'From the reception desk, walk past it and turn into the left corridor. Waiting Area B is the first room on that side.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => (
+          <FictionalMap
+            caption="Fictional floor plan — not a real hospital layout."
+            marker={{ x: 170, y: 105, label: 'You' }}
+            route={[
+              [170, 105],
+              [120, 105],
+              [86, 70],
+            ]}
+            rooms={[
+              { x: 20, y: 20, w: 90, h: 56, label: 'Reception', sub: 'desk', tone: 'lavender' },
+              { x: 20, y: 134, w: 200, h: 56, label: 'Waiting Area B', sub: 'left corridor', tone: 'sage' },
+              { x: 236, y: 20, w: 84, h: 56, label: 'Clinic rooms', tone: 'mist' },
+              { x: 236, y: 134, w: 84, h: 56, label: 'Exit', tone: 'peach' },
+            ]}
+          />
+        ),
+      },
+      {
+        id: 'recap',
+        title: 'Say it back to Joy',
+        body: 'Practise once with Joy: “Waiting Area B is past the desk, on the left.” Then you are done with this step.',
+      },
+    ],
+  },
+
+  'hospital-room-4': {
+    id: 'hospital-room-4',
+    title: 'The room move to Room 4',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Waiting Area B moved to Room 4',
+        body: 'The waiting area is being cleaned, so the pretend queue moved. Room 4 is across the hall — follow the green sign.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => (
+          <FictionalMap
+            caption="Fictional floor plan — not a real hospital layout."
+            marker={{ x: 60, y: 105, label: 'Reception' }}
+            route={[
+              [105, 105],
+              [170, 105],
+              [235, 105],
+            ]}
+            rooms={[
+              { x: 20, y: 60, w: 80, h: 90, label: 'Reception', sub: 'desk', tone: 'lavender' },
+              { x: 120, y: 60, w: 90, h: 90, label: 'Waiting Area B', sub: 'closed today', tone: 'mist' },
+              { x: 230, y: 60, w: 90, h: 90, label: 'Room 4', sub: 'new queue', tone: 'sage' },
+            ]}
+          />
+        ),
+      },
+      {
+        id: 'recap',
+        title: 'Handling a change calmly',
+        body: 'This step practises staying calm when plans change. Tell Joy when you are ready to head to Room 4 — or ask her to explain again.',
+      },
+    ],
+  },
+
+  'matatu-stage-route': {
+    id: 'matatu-stage-route',
+    title: 'Route 46 and your stop',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Know your stage before you board',
+        body: 'In this practice, the matatu runs a pretend Route 46. Your pretend drop-off is the third stage after the stage you board at.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => (
+          <FictionalMap
+            caption="Fictional route map — not a real matatu route."
+            marker={{ x: 40, y: 105, label: 'Board here' }}
+            route={[
+              [70, 105],
+              [140, 105],
+              [210, 105],
+              [280, 105],
+            ]}
+            rooms={[
+              { x: 16, y: 76, w: 52, h: 58, label: 'Stage 1', sub: 'board', tone: 'lavender' },
+              { x: 118, y: 76, w: 52, h: 58, label: 'Stage 2', tone: 'mist' },
+              { x: 220, y: 76, w: 52, h: 58, label: 'Stage 3', sub: 'your stop', tone: 'sage' },
+              { x: 290, y: 76, w: 34, h: 58, label: '…', tone: 'peach' },
+            ]}
+          />
+        ),
+      },
+      {
+        id: 'recap',
+        title: 'Practise calling your stop',
+        body: 'Try saying “Stop at the next stage, please” or “Shukisha hapa, tafadhali” before the pretend matatu reaches Stage 3.',
+      },
+    ],
+  },
+
+  'gov-counter-directions': {
+    id: 'gov-counter-directions',
+    title: 'From ticket to Counter 3',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Ticket B-12 means Counter 3',
+        body: 'After the inquiry counter gives you a pretend ticket, follow the hall straight ahead. Your counter number is printed on the ticket.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => (
+          <FictionalMap
+            caption="Fictional service hall layout — not a real building."
+            marker={{ x: 40, y: 105, label: 'You' }}
+            route={[
+              [80, 105],
+              [160, 105],
+              [240, 105],
+            ]}
+            rooms={[
+              { x: 16, y: 60, w: 60, h: 90, label: 'Inquiry', sub: 'counter', tone: 'lavender' },
+              { x: 120, y: 60, w: 60, h: 90, label: 'Counter 1', tone: 'mist' },
+              { x: 200, y: 60, w: 60, h: 90, label: 'Counter 2', tone: 'mist' },
+              { x: 280, y: 60, w: 44, h: 90, label: 'C3', sub: 'yours', tone: 'sage' },
+            ]}
+          />
+        ),
+      },
+      {
+        id: 'recap',
+        title: 'Repeat the directions if needed',
+        body: 'If you lose the thread, ask Wanjiku to say it again — that is exactly what the rehearsal is for.',
+      },
+    ],
+  },
+
+  'directions-landmarks': {
+    id: 'directions-landmarks',
+    title: 'Two landmarks to remember',
+    kicker: 'Fictional practice map',
+    slides: [
+      {
+        id: 'intro',
+        title: 'Past the bookshop, left at the tower',
+        body: 'Maina’s pretend directions have two landmarks. Try to picture the walk before you practise saying it back.',
+      },
+      {
+        id: 'map',
+        kind: 'custom',
+        render: () => (
+          <FictionalMap
+            caption="Fictional street map — not a real location."
+            marker={{ x: 30, y: 105, label: 'Start' }}
+            route={[
+              [40, 105],
+              [123, 105],
+              [123, 49],
+              [216, 49],
+              [216, 149],
+            ]}
+            rooms={[
+              { x: 16, y: 76, w: 54, h: 58, label: 'You', tone: 'lavender' },
+              { x: 96, y: 76, w: 54, h: 58, label: 'Bookshop', sub: 'go past', tone: 'peach' },
+              { x: 186, y: 20, w: 60, h: 58, label: 'Clock tower', sub: 'turn left', tone: 'sage' },
+              { x: 186, y: 120, w: 60, h: 58, label: 'Library', sub: 'destination', tone: 'mist' },
+            ]}
+          />
+        ),
+      },
+      {
+        id: 'recap',
+        title: 'Say both landmarks back',
+        body: 'Practise with Maina: “Past the green bookshop, then left at the clock tower.” Two landmarks, in order.',
+      },
+    ],
+  },
+}

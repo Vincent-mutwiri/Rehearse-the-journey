@@ -688,6 +688,7 @@ function buildRig() {
   const eyes: Mesh[] = []
   const highlights: Mesh[] = []
   const lids: Mesh[] = []
+  const lidMats: MeshPhysicalMaterial[] = []
   const brows: Mesh[] = []
 
   const blushMats: MeshPhysicalMaterial[] = []
@@ -734,6 +735,7 @@ function buildRig() {
     const lidMat = lavender.clone() as MeshPhysicalMaterial
     lidMat.polygonOffset = true
     lidMat.polygonOffsetFactor = -2
+    lidMats.push(lidMat)
     materials.push(lidMat)
     const lid = new Mesh(lidGeo, lidMat)
     placeOnHead(lid, x, 0.03, 0.012)
@@ -820,6 +822,7 @@ function buildRig() {
     eyes,
     highlights,
     lids,
+    lidMats,
     brows,
     blushMats,
     mouthRig,
@@ -882,6 +885,7 @@ function Character({ state, thinking = false, persona = 'joy', encourageSignal, 
   useEffect(() => {
     const palette = PERSONA_COLORS[persona] ?? PERSONA_COLORS.joy
     rig.lavender.color.set(palette.primary)
+    rig.lidMats.forEach(m => m.color.set(palette.primary))
     rig.peach.color.set(palette.badge)
     invalidate()
   }, [persona, rig, invalidate])

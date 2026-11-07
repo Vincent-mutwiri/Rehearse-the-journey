@@ -104,6 +104,76 @@ async def bot(runner_args):
     if not isinstance(runner_args, SmallWebRTCRunnerArguments):
         raise ValueError("This demo requires SmallWebRTC; run without a transport override.")
 
+    from pipecat.processors.frameworks.rtvi import RTVIProcessor
+
+    class StoryRTVIProcessor(RTVIProcessor):
+        """Forwards FlowEngine, MultiAgentBus, and DevTelemetry events to the client as RTVI server messages.
+
+        Typed input and browser-STT speech both arrive as ``send-text`` messages,
+        so hooking here makes story_open / flow_node_transition / speaker_changed /
+        approval_proposal events fire for either input path.
+        """
+
+        def __init__(
+            self,
+            engine: FlowEngine,
+            bus: MultiAgentBus,
+            telemetry,
+            fallback_coordinator: FallbackChainCoordinator,
+            context=None,
+            **kwargs,
+        ):
+            super().__init__(**kwargs)
+            self._engine = engine
+            self._bus = bus
+            self._telemetry = telemetry
+            self._fallback = fallback_coordinator
+            self._context = context
+
+        async def _send_flow_events(self, decision):
+            for event in decision.rtvi_events:
+                await self.send_server_message(event)
+
+        async def _handle_send_text(self, data, message_id, user_id=None):
+            text = (getattr(data, "content", "") or "").strip()
+            self._telemetry.trace_frame("in", "UserSendText", text[:80])
+            self._bus.record_turn("user", text)
+
+            # SB.3: If two personas overlapped on the prior turn, user's response selects who continues
+            if self._bus.parallel_overlap_active:
+                resolved = self._bus.resolve_parallel_barge_in(text)
+                self._telemetry.active_speaker = self._bus.active_speaker_id
+                await self.send_server_message(resolved)
+
+            decision = self._engine.evaluate_user_turn(text)
+            self._telemetry.current_node = decision.node_id
+
+            # SB.2 & SB.3: Multi-agent handoff or parallel fan-out
+            if decision.handoff_to:
+                handoff_evt = self._bus.handoff(decision.handoff_to, parallel=decision.parallel_fanout)
+                self._telemetry.active_speaker = self._bus.active_speaker_id
+                await self.send_server_message(handoff_evt)
+            if decision.parallel_fanout:
+                fanout_evt = self._bus.build_parallel_fanout_turn()
+                await self.send_server_message(fanout_evt)
+
+            await self._send_flow_events(decision)
+
+            # Inject current Flow node + active persona guidance so the LLM follows the state machine
+            if self._context is not None:
+                persona = self._bus.active_persona
+                self._context.add_message({
+                    "role": "system",
+                    "content": (
+                        f"[ACTIVE PERSONA: {persona.display_name} ({persona.role_badge})] "
+                        f"{persona.character_instructions}\n"
+                        f"[FLOW STEP '{decision.node_id}' ({decision.step_title})]: "
+                        f"{decision.instruction_for_llm}"
+                    ),
+                })
+
+            await super()._handle_send_text(data, message_id, user_id)
+
     scenario_id = os.getenv("REHEARSAL_SCENARIO", "hospital")
     level = int(os.getenv("REHEARSAL_LEVEL", "1"))
     mode = os.getenv("REHEARSAL_MODE", "practise")
@@ -206,6 +276,13 @@ async def bot(runner_args):
         ]),
         params=PipelineParams(enable_metrics=False, enable_usage_metrics=False),
         enable_rtvi=True,
+        rtvi_processor=StoryRTVIProcessor(
+            flow_engine,
+            bus=bus,
+            telemetry=telemetry,
+            fallback_coordinator=fallback_coordinator,
+            context=context,
+        ),
     )
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
@@ -247,8 +324,16 @@ async def bot(runner_args):
         if greeted:
             return
         greeted = True
+        await rtvi.send_server_message({
+            "type": "provider_selected",
+            "stack_id": fallback_coordinator.current.stack_id,
+            "display_name": fallback_coordinator.current.display_name,
+            "reason": fallback_coordinator.current.reason,
+        })
         opening = flow_engine.opening_instruction()
         telemetry.trace_frame("out", "FlowOpening", opening.step_title)
+        for event in opening.rtvi_events:
+            await rtvi.send_server_message(event)
         context.add_message({
             "role": "user",
             "content": (

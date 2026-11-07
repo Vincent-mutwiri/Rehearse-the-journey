@@ -492,6 +492,16 @@ async def bot(runner_args):
 
     provider, key, selection = select_provider_for_session(audio_preference=audio_enabled)
     system_prompt = build_system_instruction(mode, flow_engine, bus)
+    local_model_dir = os.getenv("LOCAL_WHISPER_MODEL_DIR", "").strip()
+    use_local_whisper = os.getenv("USE_LOCAL_WHISPER", "0").strip().lower() in {"1", "true", "yes"}
+
+    def make_local_stt():
+        if not (use_local_whisper and local_model_dir):
+            return None
+        from local_whisper import KenyanWhisperSTT
+
+        logger.info("Using local Kenyan-English Whisper STT: {}", local_model_dir)
+        return KenyanWhisperSTT.create(local_model_dir)()
 
     transport = SmallWebRTCTransport(
         webrtc_connection=runner_args.webrtc_connection,
@@ -535,7 +545,8 @@ async def bot(runner_args):
             http_options=http_options,
             use_genai=True,
         )
-        before_user, after_user = [], [llm, tts]
+        local_stt = make_local_stt()
+        before_user, after_user = ([local_stt] if local_stt else []), [llm, tts]
 
     elif provider == "text_only":
         llm = DeterministicTextOnlyLLMProcessor(flow_engine, bus)
@@ -546,10 +557,14 @@ async def bot(runner_args):
         from pipecat.services.openai.stt import OpenAISTTService
         from pipecat.services.openai.tts import OpenAITTSService
 
-        stt = OpenAISTTService(
-            api_key=key,
-            settings=OpenAISTTService.Settings(model="whisper-1"),
-        )
+        local_stt = make_local_stt()
+        if local_stt:
+            stt = local_stt
+        else:
+            stt = OpenAISTTService(
+                api_key=key,
+                settings=OpenAISTTService.Settings(model="whisper-1"),
+            )
         llm = OpenAILLMService(
             api_key=key,
             settings=OpenAILLMService.Settings(

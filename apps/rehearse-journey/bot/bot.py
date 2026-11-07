@@ -22,6 +22,7 @@ from multi_agent import PERSONAS, MultiAgentBus
 from providers import FallbackChainCoordinator, ProviderRegistry, ProviderSelection
 from scenario import JOY_SYSTEM_PROMPT
 from vision import VISION_SYSTEM_PROMPT
+from clarification import ClarificationPractice
 
 load_dotenv()
 logger.remove()
@@ -167,6 +168,7 @@ async def bot(runner_args):
             image_http_options=None,
             image_api_key=None,
             image_timeout_sec: float = 8.0,
+            clarification: Optional[ClarificationPractice] = None,
             **kwargs,
         ):
             super().__init__(**kwargs)
@@ -179,6 +181,7 @@ async def bot(runner_args):
             self._image_api_key = image_api_key
             self._image_timeout_sec = image_timeout_sec
             self._session_active = True
+            self._clarification = clarification or ClarificationPractice()
             self._bg_image_tasks: set[asyncio.Task] = set()
 
         def close_session(self):
@@ -300,6 +303,7 @@ async def bot(runner_args):
 
             if msg_type == "session_config":
                 validated = FlowEngine.validate_session_config(payload)
+                self._clarification.configure(validated.get("clarificationPractice"))
                 node = self._engine.reset(validated["scenario_id"], validated["level"])
                 self._bus.active_speaker_id = self._engine.flow.primary_persona
                 self._bus.parallel_overlap_active = False
@@ -323,6 +327,7 @@ async def bot(runner_args):
                         "speaker": node.speaker,
                         "stack_id": self._fallback.current.stack_id,
                         "uses_browser_stt": self._fallback.current.uses_browser_stt,
+                        "clarificationPractice": self._clarification.snapshot(),
                     }
                 )
                 opening = self._engine.opening_instruction()
@@ -395,6 +400,29 @@ async def bot(runner_args):
             text = (getattr(data, "content", "") or "").strip()
             self._telemetry.trace_frame("in", "UserSendText", text[:80])
             self._bus.record_turn("user", text)
+
+            clarification_result = self._clarification.handle_user_message(text)
+            if self._context is not None:
+                if clarification_result.get("is_clarification"):
+                    self._context.add_message({
+                        "role": "system",
+                        "content": (
+                            "The user asked for clarification. Answer specifically and plainly: "
+                            f"{clarification_result['specific_instruction']}"
+                        ),
+                    })
+                else:
+                    scheduled = self._clarification.next_instruction()
+                    if scheduled and "vague_instruction" in scheduled:
+                        self._clarification.record_delivered()
+                        self._context.add_message({
+                            "role": "system",
+                            "content": (
+                                "For the next ordinary, non-safety direction, use this mild wording: "
+                                f"{scheduled['vague_instruction']} Its exact meaning is: "
+                                f"{scheduled['specific_instruction']} If asked, explain it specifically."
+                            ),
+                        })
 
             # SB.3: If two personas overlapped on the prior turn, user's response selects who continues
             if self._bus.parallel_overlap_active:
@@ -547,6 +575,7 @@ async def bot(runner_args):
         telemetry=telemetry,
         fallback_coordinator=fallback_coordinator,
         context=context,
+        clarification=ClarificationPractice(),
         image_http_options=_proxy_http_options(),
         image_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
     )

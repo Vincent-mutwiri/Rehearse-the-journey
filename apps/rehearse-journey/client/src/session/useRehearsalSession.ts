@@ -15,6 +15,7 @@ import { useApprovalGate } from '@/approval/useApprovalGate'
 import { useSpeechInput } from '@/speech-input/useSpeechInput'
 
 export type RolePlayState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'
+export type ClarificationPercentage = 20 | 40 | 60
 
 export interface Turn {
   speaker: 'Joy' | 'You'
@@ -50,6 +51,8 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
   const [usesBrowserStt, setUsesBrowserStt] = useState<boolean>(false)
   const [providerNotice, setProviderNotice] = useState<string>('')
   const [cameraConsent, setCameraConsent] = useState(false)
+  const [clarityEnabled, setClarityEnabled] = useState(false)
+  const [clarityPercentage, setClarityPercentage] = useState<ClarificationPercentage>(40)
   const [backendConfirmedScenario, setBackendConfirmedScenario] = useState<string>('hospital')
   const [whiskerTraces, setWhiskerTraces] = useState<string[]>([
     'in | TransportReady | SmallWebRTC SDP offer ready',
@@ -66,11 +69,16 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
     level: 1 | 2 | 3 | 4
     mode: RehearsalMode
     audio_enabled: boolean
+    clarificationPractice: {
+      enabled: boolean
+      ambiguityPercentage: ClarificationPercentage
+    }
   }>({
     scenario_id: 'hospital',
     level: 1,
     mode: 'practise',
     audio_enabled: true,
+    clarificationPractice: { enabled: false, ambiguityPercentage: 40 },
   })
 
   const currentScenario = SCENARIO_CATALOG[scenarioId]
@@ -167,6 +175,10 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
       level: 1 | 2 | 3 | 4
       mode: RehearsalMode
       audio_enabled: boolean
+      clarificationPractice: {
+        enabled: boolean
+        ambiguityPercentage: ClarificationPercentage
+      }
     }) => {
       pendingConfigRef.current = cfg
       if (!client || !active.current) return
@@ -381,6 +393,10 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
         level: nextLevel,
         mode: nextMode,
         audio_enabled: audioPref,
+        clarificationPractice: {
+          enabled: clarityEnabled,
+          ambiguityPercentage: clarityPercentage,
+        },
       }
       pendingConfigRef.current = cfg
       approval.startNewSession(
@@ -415,7 +431,7 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
         }
       }
     },
-    [approval, audioPref, chaosLevel, client, mode, scenarioId, speech],
+    [approval, audioPref, chaosLevel, clarityEnabled, clarityPercentage, client, mode, scenarioId, speech],
   )
 
   const stopSession = useCallback(
@@ -490,9 +506,13 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
         level: chaosLevel,
         mode: nextMode,
         audio_enabled: audioPref,
+        clarificationPractice: {
+          enabled: clarityEnabled,
+          ambiguityPercentage: clarityPercentage,
+        },
       })
     },
-    [audioPref, chaosLevel, scenarioId, sendSessionConfigToBot],
+    [audioPref, chaosLevel, clarityEnabled, clarityPercentage, scenarioId, sendSessionConfigToBot],
   )
 
   const handleToggleAudioPref = useCallback(() => {
@@ -506,8 +526,42 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
       level: chaosLevel,
       mode,
       audio_enabled: nextAudio,
+      clarificationPractice: {
+        enabled: clarityEnabled,
+        ambiguityPercentage: clarityPercentage,
+      },
     })
-  }, [audioPref, chaosLevel, mode, scenarioId, sendSessionConfigToBot, speech])
+  }, [audioPref, chaosLevel, clarityEnabled, clarityPercentage, mode, scenarioId, sendSessionConfigToBot, speech])
+
+  const handleToggleClarity = useCallback((enabled: boolean) => {
+    setClarityEnabled(enabled)
+    sendSessionConfigToBot({
+      scenario_id: scenarioId,
+      level: chaosLevel,
+      mode,
+      audio_enabled: audioPref,
+      clarificationPractice: {
+        enabled,
+        ambiguityPercentage: clarityPercentage,
+      },
+    })
+  }, [audioPref, chaosLevel, clarityPercentage, mode, scenarioId, sendSessionConfigToBot])
+
+  const handleChangeClarityPercentage = useCallback((percentage: ClarificationPercentage) => {
+    setClarityPercentage(percentage)
+    if (active.current) {
+      sendSessionConfigToBot({
+        scenario_id: scenarioId,
+        level: chaosLevel,
+        mode,
+        audio_enabled: audioPref,
+        clarificationPractice: {
+          enabled: clarityEnabled,
+          ambiguityPercentage: percentage,
+        },
+      })
+    }
+  }, [audioPref, chaosLevel, clarityEnabled, mode, scenarioId, sendSessionConfigToBot])
 
   return {
     state,
@@ -546,6 +600,10 @@ export function useRehearsalSession(client: PipecatClient | undefined) {
     providerNotice,
     setProviderNotice,
     cameraConsent,
+    clarityEnabled,
+    clarityPercentage,
+    handleToggleClarity,
+    handleChangeClarityPercentage,
     setCameraConsent,
     backendConfirmedScenario,
     whiskerTraces,

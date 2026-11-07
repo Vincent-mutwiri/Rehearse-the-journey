@@ -67,6 +67,7 @@ class FlowEngine:
             "level": level,
             "mode": mode,
             "audio_enabled": audio_enabled,
+            "clarificationPractice": data.get("clarificationPractice", {}),
         }
 
     @staticmethod

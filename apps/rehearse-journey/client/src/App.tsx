@@ -88,6 +88,10 @@ function RehearsalView() {
     setProviderNotice,
     cameraConsent,
     setCameraConsent,
+    clarityEnabled,
+    clarityPercentage,
+    handleToggleClarity,
+    handleChangeClarityPercentage,
     whiskerTraces,
     currentScenario,
     currentSteps,
@@ -412,6 +416,47 @@ function RehearsalView() {
                 ))}
               </div>
             </fieldset>
+            <section className="clarity-practice" aria-labelledby="clarity-title">
+              <div className="clarity-heading">
+                <div>
+                  <h3 id="clarity-title">Ask for Clarity</h3>
+                  <p>Practise asking specific questions when someone gives unclear instructions.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={clarityEnabled}
+                  aria-label={`Ask for Clarity. ${clarityEnabled ? 'On' : 'Off'}`}
+                  className={`clarity-switch${clarityEnabled ? ' is-on' : ''}`}
+                  onClick={() => handleToggleClarity(!clarityEnabled)}
+                >
+                  <span className="clarity-switch-thumb" aria-hidden="true" />
+                  <span>{clarityEnabled ? 'ON' : 'OFF'}</span>
+                </button>
+              </div>
+              {clarityEnabled && (
+                <fieldset className="clarity-options">
+                  <legend>How often should instructions be unclear?</legend>
+                  {([
+                    [20, 'A little practice'],
+                    [40, 'Regular practice'],
+                    [60, 'More practice'],
+                  ] as const).map(([percentage, label]) => (
+                    <label key={percentage}>
+                      <input
+                        type="radio"
+                        name="clarity-percentage"
+                        value={percentage}
+                        checked={clarityPercentage === percentage}
+                        onChange={() => handleChangeClarityPercentage(percentage)}
+                      />
+                      <span><strong>{percentage}%</strong> {label}</span>
+                    </label>
+                  ))}
+                  <p className="clarity-note">About {clarityPercentage}% of suitable instructions will be intentionally unclear.</p>
+                </fieldset>
+              )}
+            </section>
           </SettingsDrawer>
         </header>
         {readAloud && (

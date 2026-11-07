@@ -563,7 +563,7 @@ function buildRig() {
   geometries.push(orbGeometry)
 
   function orb(
-    parent: Group | Bone,
+    parent: Object3D,
     material: MeshStandardMaterial | MeshPhysicalMaterial,
     position: [number, number, number],
     scale: [number, number, number],

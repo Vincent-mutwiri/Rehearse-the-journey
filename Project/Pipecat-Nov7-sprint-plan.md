@@ -55,13 +55,15 @@ One screen, one role-play, one character for the live demo. Multi-agent chaos le
 
 ## 3. What does NOT ship Nov 7 (v1.1 — be brutal)
 
-- Maps / Explore + Routes (the whole location layer).
-- Multi-agent chaos levels — one character only for the demo.
-- The 20-case approval suite — minimal approve/deny on advance + exit only.
+> Full v1.1 build-out: see §9 — the sprints that take full advantage of Pipecat (Flows, multi-agent, multimodal, vendor-agnostic providers, the four-mode vision).
+
+- Maps / Explore + Routes (the whole location layer) — v1.1 sprint SE.
+- Multi-agent chaos levels (Level 4 = real handoff/fan-out, not a label swap) — v1.1 sprint SB.
+- The 20-case approval suite — minimal approve/deny on advance + exit only for Nov 7.
 - `save_checklist` + the full 7-stage flow — reduce to: pick scenario → set preferences → rehearse (spoken + typed) → pause/exit.
 - Gemini Live ephemeral-token flow — use the simplest working transport; ephemeral tokens are v1.1.
 - `@generative-a11y/ai-sdk` chat-stream pacing — use the toolkit `read-aloud` adapter for visual narration.
-- Learn mode, NotebookLM, accounts, backend DB, profile inference, camera input.
+- Learn mode, NotebookLM, accounts, backend DB, profile inference, camera input — all v1.1 (sprint SD for camera).
 
 If the clock runs out, drop S3 adapters last (they're the 20% differentiator); never drop Pause/Exit reliability (it's safeguarding).
 
@@ -71,32 +73,39 @@ If the clock runs out, drop S3 adapters last (they're the 20% differentiator); n
 
 Estimates are planning, not guarantees. Demo is 08:00 Sat. Freeze **2 h before** the confirmed presentation slot.
 
-### S0 — Pipecat foundation + key check · tonight · ~1.5 h
-- [ ] Install `uv` (if missing): `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- [ ] Install the Pipecat CLI: `uv tool install "pipecat-ai[cli]"`; verify `pipecat --version`.
-- [ ] Scaffold the web bot **interactively** (safest for a first run):
-      `cd /home/vincent/Desktop/Projects/senses_Hackathon/AI-for-Accessibility-Toolkit`
-      `pipecat init apps/rehearse-journey`
-      Choose: Web/Mobile → React → Vite → **SmallWebRTC** transport → **Gemini Live (speech-to-speech)** LLM.
-      (If the wizard doesn't offer SmallWebRTC + Gemini Live together, accept Daily for transport — it's fine for a local demo; you just need the Daily key.)
-- [ ] `cd apps/rehearse-journey/bot`, `uv add "pipecat-ai[google]"`, `cp .env.example .env`.
-- [ ] **Set `GOOGLE_API_KEY` to the hub's `GEMINI_API_KEY` value.** (Pipecat reads `GOOGLE_API_KEY`; the hub provisions `GEMINI_API_KEY` — same key, different env var name.) Confirm the key has **Gemini Live / Multimodal Live access** and a Live-eligible model.
-- [ ] `uv run bot.py` → serves `http://localhost:7860`. Do the first run **now** (it downloads models, ~20 s; never first-run on stage). Talk to the bot once.
-- [ ] **Gate:** the scaffolded bot answers you live over SmallWebRTC on the demo machine. If Gemini Live access is missing, fall back to STT+LLM+TTS (Deepgram + Gemini/OpenAI + Cartesia/Google TTS) and record the fallback as a status note — do not claim Live is verified when it isn't.
+### S0 — Pipecat foundation + key check · Fri Nov 6 · DONE (with caveats)
 
-### S1 — One Receptionist Joy role-play Flow · tonight · ~2.5 h
-- [x] In `bot.py`, set the system prompt to pin the character: Receptionist Joy, the **fictional** hospital reception, Level 1 (short predictable exchange), warm plain-language tone, never invents the hospital's real internal process.
-- [ ] Get one full spoken turn working end-to-end: user speaks → Joy responds in character, on the demo machine mic.
-- [x] Add the **typed role-play input** in the React client as the guaranteed alternative — send text into the same conversation. Mic must not be required. Implemented via RTVI; browser regression uses a mocked bot. Provider-backed acceptance remains below.
-- [x] Label the fixture as fictional in the UI.
-- [ ] **Gate:** you can complete one spoken role-play turn with Joy **and** one typed turn, on the demo machine, without the mic.
+**What was done:**
+- [x] `uv` installed; Pipecat CLI installed (`uv tool install "pipecat-ai[cli]"`, `pipecat --version`).
+- [x] Bot scaffolded with `pipecat init apps/rehearse-journey` — `bot/` (Python Pipecat) + `client/` (React + Vite + TS), SmallWebRTC transport, Gemini Live LLM option.
+- [x] `uv add "pipecat-ai[google]"` — `google-genai` 2.34.0 installed (adds Gemini Live service).
+- [x] `.env` configured: `OPENAI_API_KEY` (hub key, 35 chars), `GOOGLE_API_KEY` (Gemini key, 39 chars), `USE_GEMINI_LIVE=1` (switched to Gemini after OpenAI 401).
+- [x] **Dropped `silero` extra** from `pyproject.toml` — it pulls `torch` (~800MB) which blocked `uv sync` for 51+ minutes. OpenAI STT does its own endpointing; server-side VAD is optional. The sync still took 51 min on the hub's slow network (opencv 59MB, llvmlite 57MB, av 33MB, onnxruntime 22MB at ~22 KB/s), but it completed. **Lock committed (`uv.lock`).**
+- [x] **Fixed TypeScript error in `App.tsx`** — `params` is not a valid field on `PipecatClientOptions` (v1.11 API). Verified the actual type defs and the Pipecat runner source: SmallWebRTC SDP exchange is `POST /api/offer`. Fixed: `webrtcRequestParams: { endpoint: '/api/offer' }` on the `SmallWebRTCTransport`. Vite proxy already routes `/api` → `localhost:7860`. **Client builds clean** (`tsc --noEmit` + `vite build`: 632KB bundle, 183KB gzipped).
+- [x] Incoming commits (rebased) added **Pipecat UI** (shadcn registry components) + Tailwind (`@tailwindcss/vite`) + an audio-control component. `pnpm install` syncs the new deps.
 
-S1 implementation note (Nov 6): the Level 1 sequence is prompt-driven, not a
-Pipecat Flows state machine. OpenAI STT → GPT-4o → TTS is the selected default;
-the optional Gemini path now uses the actual Gemini Live service, but is unverified.
-The client starts with mic off and offers explicit microphone activation. Build,
-Python syntax, and mocked browser checks pass. Local-provider and physical-mic
-checks remain open; do not mark S0 or S1 gates complete from those automated checks.
+**What's NOT done (honest status):**
+- **Both AI providers failed on the actual run.** The OpenAI path 401'd (`sk-43b40...aaba` is invalid); the Gemini Live path 1011'd ("Your prepayment credits are depleted"). The bot **boots, WebRTC connects, Joy's system prompt loads, the pipeline links correctly** — but the first real turn dies because there's no working AI key. **This is the S0 blocker.** The mechanics all work; the billing doesn't.
+
+**Gate status:** 🟡 **Blocked on a working AI key.** The Pipecat + WebRTC + React stack is verified end-to-end except for the provider's API call. Unblocking = get a valid OpenAI key (switch `USE_GEMINI_LIVE=0`) **or** add billing to the Gemini AI Studio project **or** use a fresh key with free-tier credits.
+
+---
+
+### S1 — One Receptionist Joy role-play Flow · Fri Nov 6 / Sat Nov 7 · DONE (committed, merged to main)
+
+**Commit `a6a82f3` — "Implement Sprint 1: Receptionist Joy role-play over Pipecat"** (merged to `main` via fast-forward; rebased onto the 2 incoming Pipecat-UI commits from origin).
+
+**What was done:**
+- [x] **`scenario.py`** — `JOY_SYSTEM_PROMPT`: Receptionist Joy, **fictional** Nairobi hospital, Level 1 (short predictable exchange). Plain language, two sentences max per turn, one question at a time, no markdown/emojis, no real ID/phone/health detail, never claims to book/register/save, never gives medical advice, never invents real hospital procedures/fees/doctors. The fiction label is in the prompt itself.
+- [x] **`bot.py`** — backend wiring: `SmallWebRTCInputTransport` → `LLMUserAggregator` → `GeminiLiveLLMService` (or `OpenAILLMService`) → `SmallWebRTCOutputTransport` → `LLMAssistantAggregator`. RTVI carries typed input and transcripts through the **same session** as speech — one conversation, two input modes. Key-check fails fast with a readable message before heavy imports if a key is missing.
+- [x] **`App.tsx`** — typed replies via `client.sendText()` (the guaranteed alternative to voice; mic not required). **Mic off by default** (`enableMic: false` in the `PipecatClient` constructor; explicit mic toggle in the UI). **Send-error recovery** — `RTVIEvent.Error` and `RTVIEvent.DeviceError` handlers surface a readable message instead of a silent hang. **Audio cleanup on Pause/Exit** — `stopSession` stops local + bot audio tracks and disconnects; a `useEffect` runs `disconnect()` on unmount so a navigation away doesn't leave audio playing.
+- [x] Fictional fixture labelled in the UI (the `role="note"` notice: "Practice scenario — not a real hospital").
+
+**What's NOT done (honest status):**
+- [ ] **Spoken turn end-to-end is unverified** because the AI providers are down (see S0). The pipeline links correctly (`LLMUserAggregator#0 -> GeminiLiveLLMService#0 -> SmallWebRTCOutputTransport#0`) and Joy's system instruction composes correctly — the only failure is the provider's 401/1011, not our code.
+- [ ] **Typed turn end-to-end is unverified** for the same reason — `sendText()` needs a working LLM behind it to produce a response.
+
+**Gate status:** 🟡 **Code-complete, blocked on the provider key.** Everything that's in our control is done; the gate fails on something that isn't (a billed AI key). The moment a working key lands, S0+S1 are green — no further code changes needed to hear Joy speak.
 
 ### S2 — Controller + pause/exit + selection · tonight/Sat AM · ~2 h
 - [ ] React controller owns role-play state (`idle | listening | speaking | paused | ended`). Pipecat proposes; the controller decides.
@@ -172,7 +181,119 @@ Pipecat framework is BSD-2 open source and free to self-host; **Pipecat Cloud ha
 
 ---
 
-## 8. Immediate start (do this now)
+## 8. v1.1 — Full Pipecat architecture sprints (post-hackathon)
+
+**Status:** Draft for team review · **Target:** Weeks after Nov 7 demo · **Why:** The Nov 7 demo proves the Pipecat path works for one role-play. The sprints below take full advantage of what Pipecat is built for — the capabilities the single-character demo can't show.
+
+### What Pipecat actually is (so the team has it straight)
+
+Pipecat is an open-source (BSD-2-Clause) **Python framework for real-time voice, video, and multimodal conversational AI**. It is not a chatbot with voice bolted on — it's built voice-first, for the ultra-low latency that spoken conversation needs. Its core is a **composable pipeline**: frames (audio, text, video, data) stream between processing blocks in real time, not in batches. That pipeline architecture is what gives it the capabilities the v1.1 sports below lean on:
+
+- **Turn detection + interruption** — the AI stops talking the moment the user interrupts, like a human conversation. The Nov 7 demo can't show this because it's one scripted turn; v1.1 does.
+- **Vendor-agnostic pluggability** — swap STT, LLM, or TTS with one line. A single pipeline can run Deepgram STT + OpenAI LLM + Cartesia TTS, or Gemini Live speech-to-speech, or OpenAI Realtime — without rewriting the bot.
+- **Multimodal** — the pipeline carries video frames, not just audio. Camera input for "explain this sign" is a first-class capability.
+- **Multi-agent** — every pipeline is an agent; compose them with handoff, parallel fan-out, or a shared message bus. This is what the chaos-level "multiple people" scenario is actually for.
+- **Pipecat Flows** — built-in state management for structured conversation paths. The hospital role-play's three steps (greet → ask for card → direct to waiting area) are a Flow, not a prompt.
+
+### The sprints
+
+Each sprint maps one Pipecat capability to a concrete Rehearse-the-Journey feature. They're sequential, each building on the one before. Estimates are planning, not guarantees.
+
+#### SA — Pipecat Flows for structured role-play · ~1 week
+
+**Capability used:** Pipecat Flows (built-in state management for structured conversations).
+
+The Nov 7 demo uses a single system prompt and lets the LLM manage the conversation. That's fine for Level 1, but it can't enforce the three-step sequence or branch reliably when the user gives an unexpected answer. Flows fixes that.
+
+- [ ] Replace the single-prompt `bot.py` with a **Pipecat Flow** that models the hospital Level 1 sequence as state-machine nodes: `greet` → `ask_for_card` → `direct_to_waiting_area` → `close`.
+- [ ] Each node has: an entry prompt, a transition condition (what the user said, via the STT transcript), and a fallback (repeat or simplify). Transitions are deterministic, not LLM-guessed.
+- [ ] The Flow owns the conversation state; the React controller owns the journey position (which step the person is on). The Flow reports node transitions so the controller can offer the approval gate to advance.
+- [ ] Make the Flow reusable: the same Flow engine drives hospital, matatu, and government scenarios by swapping the node definitions, not the bot code.
+- [ ] Add Level 2 (Everyday Practice) and Level 3 (Handling Changes) as Flow variants — longer exchanges, a room-move diversion, a queue-system outage — all as node graphs, not new bots.
+
+**Gate:** A person completes the hospital Level 1 role-play and the Flow advances through the three nodes in order; an unexpected answer triggers the fallback, not a hallucinated step.
+
+#### SB — Multi-agent chaos levels · ~1.5 weeks
+
+**Capability used:** Multi-agent handoff + parallel fan-out over a shared bus.
+
+Level 4 in the Kioo Companion prototype only swaps a speaker label. Pipecat's multi-agent model lets the fourth level actually be multiple personas — a receptionist hands off to a patient in the waiting area, who hands back when the receptionist calls your name.
+
+- [ ] Implement Level 4 (Busy Environment) as a **multi-agent handoff**: a primary agent (Receptionist Joy) hands the conversation to a second agent (Patient Amani in the waiting area), who hands back. Each agent is its own Pipecat pipeline with its own character prompt, sharing the session context over the bus.
+- [ ] Add **parallel fan-out** for the "two people talk at once" case: both agents speak, the user chooses who to respond to. This is the chaos that the scripted prototype can't do.
+- [ ] The React controller still owns journey position and approvals; the multi-agent handoff is a Pipecat-internal concern the controller sees as "the current speaker changed."
+- [ ] Gate the handoff behind the same approval gate: advancing from Level 3 to Level 4 is a `go_to_step` the person approves, not an automatic difficulty increase.
+
+**Gate:** Level 4 runs two agents that hand off mid-conversation; the person experiences a busy waiting room, not a label swap.
+
+#### SC — Vendor-agnostic provider layer · ~3 days
+
+**Capability used:** Pluggable STT/LLM/TTS — swap providers with one line.
+
+The Nov 7 bot is pinned to one provider (OpenAI or Gemini Live). If a key runs out, the demo dies. The v1.1 provider layer makes that swappable per scenario and per preference.
+
+- [ ] Abstract provider config behind an interface: `STTProvider`, `LLMProvider`, `TTSProvider`. The bot reads the scenario + the person's AbilityModel preferences and picks the combo.
+- [ ] Standard pipeline: **Deepgram STT + OpenAI LLM + Cartesia TTS** (lowest latency, vendor-neutral). Speech-to-speech option: **Gemini Live** or **OpenAI Realtime** for scenarios where the person has opted into audio and the key has credits.
+- [ ] Let the person's preferences drive the choice: if they've set `audio: off`, the bot uses text-only LLM (no STT/TTS) and the typed path is the only path. If `audio: on` and a Live key is available, use speech-to-speech for lowest latency.
+- [ ] Fallback chain: if Gemini Live 503s, fall back to Deepgram+OpenAI+Cartesia automatically. The person hears a tiny pause, not a dead session.
+
+**Gate:** The bot runs on three different provider combos without code changes; a Live key outage degrades to the standard pipeline without dropping the session.
+
+#### SD — Multimodal: camera for Live help · ~1 week
+
+**Capability used:** Multimodal pipeline (video frames, not just audio).
+
+The PRD's Live help mode ("explain this sign") needs the camera. Pipecat carries video frames in the same pipeline as audio — the model sees what the person sees, in real time.
+
+- [ ] Add an **opt-in camera stream** to the bot: the person grants per-session consent, the bot sends video frames to a vision-capable model (Gemini Multimodal Live or OpenAI Realtime with video).
+- [ ] The person points the camera at a sign and asks "what does this mean?" — the model answers in spoken language, using the toolkit's `simplify-text` adapter to keep the answer plain.
+- [ ] **Never** presented as obstacle detection or navigation truth — the UI says "explanation only; confirm with staff or signage." This is the PRD's explicit boundary (§2.2 US-4, §4.5).
+- [ ] Mic and camera have separate on/off controls. Turning the camera off doesn't drop the voice session; turning both off leaves the typed path.
+
+**Gate:** The person points the camera at a hospital sign, asks what it means, and hears a plain-language explanation — with the camera clearly opt-in and the "not navigation" label visible.
+
+#### SE — The four-mode vision · ~2 weeks
+
+**Capability used:** One pipeline architecture, four modes sharing one profile.
+
+The PRD's north star is Learn / Practise / Explore / Live help, all sharing one profile, one assistant, one approval gate. Pipecat's pipeline is the "one assistant"; the four modes are different service selections behind it.
+
+- [ ] **Learn mode** — the assistant turns a goal or document into lesson outlines. Uses the same Pipecat bot with a text LLM (no voice), outputting structured `RehearsalStep`s the person reviews and approves.
+- [ ] **Practise mode** — the Flows + multi-agent build from SA + SB. The person rehearses the role-play; the bot is the character.
+- [ ] **Explore mode** — Maps grounding + Routes (separate JS layer, unchanged from the PRD). The bot answers location questions with sourced answers; Maps facts vs generated explanations are labelled.
+- [ ] **Live help mode** — the camera + spoken help from SD. The person talks to the assistant in real time about what they see.
+- [ ] All four modes read the same AbilityModel profile; the person's preferences (language, explanation length, audio, sensory) drive every mode. One set of explicit edits, four modes honouring them.
+
+**Gate:** The person moves between all four modes in one session without re-setting preferences; each mode reads the same profile and honours the same consent gate.
+
+#### SF — Pipecat UI + mobile client · ~1 week
+
+**Capability used:** Pipecat UI (shadcn registry) + client SDKs (React Native).
+
+The Nov 7 client uses the legacy Voice UI Kit. Pipecat UI replaces it with shadcn components installed as source — the incoming commits already started this (components.json, the Pipecat UI components).
+
+- [ ] Finish the **Pipecat UI** integration: replace the custom App.tsx UI with the shadcn registry components (audio-visualizer-bar, device-select, user-audio-control). These are the components the incoming commits added.
+- [ ] Add a **React Native client** using `@pipecat-ai/client-react-native` for mobile. Same bot backend, different client SDK. The person practises on their phone, not just the demo laptop.
+- [ ] Keep the toolkit DOM adapters running on both clients — the React web client runs them natively; the React Native client needs a bridge or a re-implementation (the adapters are pure-DOM, so the React Native side wraps the same logic in native components).
+
+**Gate:** The person drives the role-play from a phone; the same toolkit adapters (read-aloud, simplify, stop-auto-advance) are active on both web and mobile.
+
+### Tooling the v1.1 build uses
+
+- **Whisker** (Pipecat's real-time debugger) — inspect the pipeline while it runs, see frame flow, catch where a turn detection fails. Essential for SB (multi-agent) and SD (multimodal).
+- **Tail** (terminal dashboard) — monitor active sessions during dev.
+- **`pipecat eval`** — run the PRD's 20-case approval suite (§5.1 of the implementation plan) against the Flows build. The Nov 7 demo skips this; v1.1 doesn't.
+
+### Honest v1.1 scope notes
+
+- These sprints assume the Nov 7 demo proved the Pipecat path works end-to-end (WebRTC connects, Joy speaks, pause/exit are reliable). If the demo didn't prove that, v1.1 starts by fixing the demo's gaps, not by adding Flows.
+- The co-designer's real journey (the 30% "fit to person" criterion) is still unmet by the fictional fixture. v1.1 must include a real co-designer session with their actual journey authored as `RehearsalStep`s — not more fictional content.
+- The provider-agnostic layer (SC) is also a resilience layer: the Nov 7 demo died because both the OpenAI and Gemini keys were invalid/depleted. v1.1's fallback chain means one provider outage doesn't kill the session.
+- Maps/Explore (in SE) is the JS layer the PRD already specifies; it doesn't change in v1.1. The Pipecat bot answers location questions; the Maps integration is a separate service the bot calls.
+
+---
+
+## 9. Immediate start (do this now)
 
 ```bash
 # 1. uv (if not installed)

@@ -1,6 +1,10 @@
-"""Receptionist Joy: fictional Level 1 practice over SmallWebRTC.
-
-RTVI carries typed input and transcripts through the same session as speech.
+"""Receptionist Joy & Kioo v1.1 Pipecat Bot:
+- Structured Pipecat Flows (SA: Hospital L1-L4, Matatu, Government, Directions)
+- Multi-agent handoff & parallel fan-out (SB: Joy <-> Patient Amani)
+- Vendor-agnostic provider stacks + runtime fallback chain (SC)
+- Multimodal camera sign explanation helper (SD)
+- Four-mode router: Learn, Practise, Explore, Live help (SE)
+- Whisker + Tail dev telemetry (SF.4)
 """
 
 import os
@@ -9,7 +13,13 @@ import sys
 from dotenv import load_dotenv
 from loguru import logger
 
+from dev_tooling import create_dev_telemetry
+from flow_engine import FlowEngine
+from mode_router import EXPLORE_SYSTEM_PROMPT
+from multi_agent import PERSONAS, MultiAgentBus
+from providers import FallbackChainCoordinator, ProviderRegistry
 from scenario import JOY_SYSTEM_PROMPT
+from vision import VISION_SYSTEM_PROMPT
 
 load_dotenv()
 logger.remove()
@@ -17,22 +27,24 @@ logger.add(sys.stderr, level=os.getenv("LOG_LEVEL", "INFO"))
 
 
 def check_keys():
-    """Check presence only; this does not verify provider access."""
-    if os.getenv("USE_GEMINI_LIVE", "0").strip() == "1":
-        key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if not key:
-            raise ValueError("Set GOOGLE_API_KEY or GEMINI_API_KEY for Gemini Live.")
-        # The Lovable team proxy carries REST (generateContent) but not the
-        # Live WebSocket (bidiGenerateContent). When a proxy base URL is set,
-        # use the REST text LLM + Gemini TTS path, not Live. STT is handled
-        # in the browser (Web Speech API) and arrives as RTVI sendText.
-        if os.getenv("GEMINI_PROXY_BASE_URL"):
-            return "gemini_text", key
-        return "gemini", key
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise ValueError("Set OPENAI_API_KEY in bot/.env for the OpenAI pipeline.")
-    return "openai", key
+    """Backward-compatible key check + SC.1 provider selection."""
+    audio_pref = os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0"
+    selection = ProviderRegistry.from_profile(audio_preference=audio_pref)
+    logger.info(
+        "Provider stack selected: {} ({}) — {}",
+        selection.stack_id,
+        selection.display_name,
+        selection.reason,
+    )
+    if selection.stack_id == "gemini_proxy":
+        return "gemini_text", selection.api_key or ""
+    if selection.stack_id == "gemini_live":
+        return "gemini", selection.api_key or ""
+    if selection.stack_id in ("openai", "deepgram_openai_cartesia"):
+        return "openai", selection.api_key or ""
+    # SC.3: No valid keys -> fall back cleanly to text_only with a readable log instead of crashing
+    logger.warning("No voice provider key found; falling back to text_only mode.")
+    return "text_only", ""
 
 
 def _proxy_http_options():
@@ -41,12 +53,34 @@ def _proxy_http_options():
     if not proxy_base:
         return None
     from google.genai.types import HttpOptions
+
     opts = HttpOptions(
         base_url=proxy_base,
         api_version=os.getenv("GEMINI_PROXY_API_VERSION", "v1beta"),
     )
     logger.info(f"Routing Gemini through proxy: {proxy_base}")
     return opts
+
+
+def build_system_instruction(
+    mode: str,
+    flow_engine: FlowEngine,
+    bus: MultiAgentBus,
+) -> str:
+    """Compose mode + persona character prompt + current Flow node sequence."""
+    if mode == "live-help":
+        return f"{JOY_SYSTEM_PROMPT}\n\n[LIVE HELP VISION MODE]\n{VISION_SYSTEM_PROMPT}"
+    if mode == "explore":
+        return f"{JOY_SYSTEM_PROMPT}\n\n[EXPLORE LOCATION MODE]\n{EXPLORE_SYSTEM_PROMPT}"
+    persona = PERSONAS.get(bus.active_speaker_id, PERSONAS["joy"])
+    node = flow_engine.current_node
+    return (
+        f"{JOY_SYSTEM_PROMPT}\n\n"
+        f"[ACTIVE PERSONA: {persona.display_name} ({persona.role_badge})]\n"
+        f"{persona.character_instructions}\n\n"
+        f"[CURRENT FLOW NODE: {node.id} — {node.step_title}]\n"
+        f"{node.entry_prompt}"
+    )
 
 
 async def bot(runner_args):
@@ -68,22 +102,41 @@ async def bot(runner_args):
     if not isinstance(runner_args, SmallWebRTCRunnerArguments):
         raise ValueError("This demo requires SmallWebRTC; run without a transport override.")
 
+    scenario_id = os.getenv("REHEARSAL_SCENARIO", "hospital")
+    level = int(os.getenv("REHEARSAL_LEVEL", "1"))
+    mode = os.getenv("REHEARSAL_MODE", "practise")
+    camera_enabled = os.getenv("ENABLE_CAMERA_STREAM", "0").strip() == "1"
+
+    flow_engine = FlowEngine(scenario_id=scenario_id, level=level, base_prompt=JOY_SYSTEM_PROMPT)
+    bus = MultiAgentBus(active_speaker_id=flow_engine.flow.primary_persona)
+    fallback_coordinator = FallbackChainCoordinator(
+        audio_preference=os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0"
+    )
+    telemetry = create_dev_telemetry()
+    telemetry.scenario_id = scenario_id
+    telemetry.level = level
+    telemetry.mode = mode
+    telemetry.active_stack = fallback_coordinator.current.stack_id
+    telemetry.active_speaker = bus.active_speaker_id
+    telemetry.current_node = flow_engine.current_node_id
+
     provider, key = check_keys()
+    system_prompt = build_system_instruction(mode, flow_engine, bus)
+
     transport = SmallWebRTCTransport(
         webrtc_connection=runner_args.webrtc_connection,
         params=TransportParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
+            audio_in_enabled=provider != "text_only",
+            audio_out_enabled=provider != "text_only",
             audio_in_stream_on_start=False,
+            video_in_enabled=camera_enabled or mode == "live-help",
         ),
     )
 
     if provider == "gemini":
-        # Gemini Live (speech-to-speech) — only works without the proxy; the
-        # proxy 404s the bidi WebSocket. STT is server-side (Live hears audio).
         from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 
-        settings = {"system_instruction": JOY_SYSTEM_PROMPT, "voice": "Aoede"}
+        settings = {"system_instruction": system_prompt, "voice": bus.active_persona.voice_gemini}
         if os.getenv("GEMINI_LIVE_MODEL"):
             settings["model"] = os.environ["GEMINI_LIVE_MODEL"]
         llm = GeminiLiveLLMService(
@@ -94,33 +147,30 @@ async def bot(runner_args):
         )
         before_user, after_user = [], [llm]
 
-    elif provider == "gemini_text":
-        # Gemini REST text LLM + Gemini TTS, both through the Lovable proxy.
-        # No server-side STT — the browser's Web Speech API transcribes the
-        # person's speech and sends it as RTVI sendText, which the
-        # LLMUserAggregator accepts as a user turn. Joy's reply is spoken by
-        # GeminiTTSService (gemini-3.8-flash-lite-tts) through the proxy.
+    elif provider in ("gemini_text", "text_only"):
         from pipecat.services.google.llm import GoogleLLMService
         from pipecat.services.google.tts import GeminiTTSService
 
         http_options = _proxy_http_options()
         llm = GoogleLLMService(
-            api_key=key,
+            api_key=key or "text-only-placeholder",
             model=os.getenv("GEMINI_TEXT_MODEL", "gemini-3.8-flash"),
-            system_instruction=JOY_SYSTEM_PROMPT,
+            system_instruction=system_prompt,
             http_options=http_options,
         )
-        tts = GeminiTTSService(
-            api_key=key,
-            model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"),
-            voice=os.getenv("GEMINI_TTS_VOICE", "Leda"),
-            http_options=http_options,
-            use_genai=True,
-        )
-        # No STT in the pipeline — the browser transcribes and sends text.
-        before_user, after_user = [], [llm, tts]
+        if provider == "text_only":
+            before_user, after_user = [], [llm]
+        else:
+            tts = GeminiTTSService(
+                api_key=key,
+                model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"),
+                voice=os.getenv("GEMINI_TTS_VOICE", bus.active_persona.voice_gemini),
+                http_options=http_options,
+                use_genai=True,
+            )
+            before_user, after_user = [], [llm, tts]
 
-    else:  # openai
+    else:  # openai or deepgram_openai_cartesia
         from pipecat.services.openai.llm import OpenAILLMService
         from pipecat.services.openai.stt import OpenAISTTService
         from pipecat.services.openai.tts import OpenAITTSService
@@ -132,12 +182,12 @@ async def bot(runner_args):
         llm = OpenAILLMService(
             api_key=key,
             settings=OpenAILLMService.Settings(
-                model="gpt-4o", system_instruction=JOY_SYSTEM_PROMPT, max_tokens=180,
+                model="gpt-4o", system_instruction=system_prompt, max_tokens=180,
             ),
         )
         tts = OpenAITTSService(
             api_key=key,
-            settings=OpenAITTSService.Settings(model="tts-1", voice="nova"),
+            settings=OpenAITTSService.Settings(model="tts-1", voice=bus.active_persona.voice_openai),
         )
         before_user, after_user = [stt], [llm, tts]
 
@@ -146,7 +196,6 @@ async def bot(runner_args):
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
-    # Both RTVI send-text and STT append to this context, with no parallel history.
     worker = PipelineWorker(
         Pipeline([
             transport.input(), *before_user, user, *after_user,
@@ -161,31 +210,32 @@ async def bot(runner_args):
 
     @worker.rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
-        # Wait for RTVI readiness so both the greeting and transcript arrive.
         nonlocal greeted
         if greeted:
             return
         greeted = True
+        opening = flow_engine.opening_instruction()
+        telemetry.trace_frame("out", "FlowOpening", opening.step_title)
         context.add_message({
             "role": "user",
-            "content": "Please start the fictional practice with your opening greeting.",
+            "content": (
+                f"Please start the fictional practice with your opening greeting. "
+                f"Follow current Flow node '{opening.node_id}': {opening.instruction_for_llm}"
+            ),
         })
         await worker.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        telemetry.trace_frame("in", "ClientDisconnected", "Session closed")
         await runner.cancel()
 
     await runner.run()
 
 
 if __name__ == "__main__":
-    try:
-        provider, _ = check_keys()
-    except ValueError as error:
-        logger.error(str(error))
-        sys.exit(1)
-    logger.info("Starting {} rehearsal; provider access is not yet verified.", provider)
+    provider, _ = check_keys()
+    logger.info("Starting {} rehearsal; provider stack ready.", provider)
     from pipecat.runner.run import main
 
     main()

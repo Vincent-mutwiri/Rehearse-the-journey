@@ -53,6 +53,9 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const onFinalRef = useRef(onFinal)
   onFinalRef.current = onFinal // always call the latest callback
+  // Synchronous flag — the onend handler reads this, not the async state,
+  // so stop() can suppress the auto-restart before the state propagates.
+  const shouldListenRef = useRef(false)
 
   useEffect(() => {
     if (!supported) return
@@ -85,26 +88,28 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
     rec.onerror = (event) => {
       // "no-speech" and "aborted" are normal; anything else stops listening.
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        shouldListenRef.current = false
         setListening(false)
       }
     }
     // SpeechRecognition stops after each final result even with continuous:true.
-    // Restart it if the person is still listening — this keeps the mic alive
-    // across turns. The restart is retried with a tiny delay because the
-    // recognition object needs a moment to release before it can start again.
+    // Restart it only if shouldListenRef is true — this is the synchronous
+    // source of truth, so stop() can suppress the restart before the React
+    // state update propagates.
     rec.onend = () => {
-      setListening((was) => {
-        if (was) {
-          setTimeout(() => {
-            try { rec.start() } catch { /* still releasing; onend will fire again */ }
-          }, 100)
-          return true
-        }
-        return false
-      })
+      if (shouldListenRef.current) {
+        setTimeout(() => {
+          if (shouldListenRef.current && recognitionRef.current) {
+            try { recognitionRef.current.start() } catch { /* still releasing; onend will fire again */ }
+          }
+        }, 100)
+      } else {
+        setListening(false)
+      }
     }
     recognitionRef.current = rec
     return () => {
+      shouldListenRef.current = false
       try { rec.abort() } catch { /* already dead */ }
       recognitionRef.current = null
     }
@@ -112,6 +117,7 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
 
   const start = useCallback(() => {
     if (!recognitionRef.current) return
+    shouldListenRef.current = true
     try {
       recognitionRef.current.start()
       setListening(true)
@@ -120,6 +126,7 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
   }, [])
 
   const stop = useCallback(() => {
+    shouldListenRef.current = false
     if (!recognitionRef.current) return
     try {
       recognitionRef.current.stop()

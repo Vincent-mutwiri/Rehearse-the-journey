@@ -157,7 +157,10 @@ function RehearsalView() {
   const sendSpoken = useCallback((transcript: string) => {
     const text = transcript.trim()
     if (!client || !active.current || !text) return
-    if (state !== 'listening' && state !== 'speaking') return
+    // Half-duplex: only send the person's speech when Joy is NOT speaking.
+    // This prevents the browser mic from picking up Joy's TTS audio from the
+    // speakers, transcribing it, and echoing it back as user input.
+    if (state !== 'listening') return
     setInterimSpoken('')
     setJoyThinking(true)
     void client.sendText(text, { run_immediately: true, audio_response: true })
@@ -197,10 +200,28 @@ function RehearsalView() {
     }
   })
   useRTVIClientEvent(RTVIEvent.BotStartedSpeaking, () => {
-    if (active.current) setState('speaking')
+    if (active.current) {
+      setState('speaking')
+      // Half-duplex: stop the browser STT so it doesn't pick up Joy's TTS
+      // audio from the speakers and echo it back as user speech.
+      browserSTT.stop()
+    }
   })
   useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, () => {
-    if (active.current) setState('listening')
+    if (active.current) {
+      setState('listening')
+      setJoyThinking(false)
+      // Resume browser STT only if the person still has the mic on —
+      // don't auto-restart if they turned it off or paused. A short delay
+      // lets the TTS tail fade before the mic reopens.
+      if (micEnabled) {
+        setTimeout(() => {
+          if (active.current && micEnabled) {
+            try { browserSTT.start() } catch { /* needs a moment */ }
+          }
+        }, 300)
+      }
+    }
   })
   useRTVIClientEvent(RTVIEvent.Error, () => {
     if (active.current) setError('Joy could not complete that response. Try again or exit and reconnect.')

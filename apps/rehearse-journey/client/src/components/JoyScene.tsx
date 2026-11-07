@@ -21,10 +21,24 @@ import {
   TorusGeometry,
   Vector2,
 } from 'three'
-import type { JoyState } from './JoyMascot'
+import type { JoyPersona, JoyState } from './JoyMascot'
 import JoyPlaceholder from './JoyPlaceholder'
 
-interface SceneProps { state: JoyState; encourageSignal: number; still: boolean }
+interface SceneProps {
+  state: JoyState
+  thinking?: boolean
+  persona?: JoyPersona
+  encourageSignal: number
+  still: boolean
+}
+
+const PERSONA_COLORS: Record<JoyPersona, { primary: string; badge: string }> = {
+  joy: { primary: '#a89bd4', badge: '#f4c6a6' },
+  amani: { primary: '#8fb39b', badge: '#f4c6a6' },
+  otieno: { primary: '#d9a477', badge: '#8fb39b' },
+  wanjiku: { primary: '#8e9ed6', badge: '#f4c6a6' },
+  maina: { primary: '#82b3a8', badge: '#f4c6a6' },
+}
 
 // Skinned geometry uses root rest space; features use head-local space.
 const HEAD_R = 0.46
@@ -294,7 +308,7 @@ export function createProceduralMorphMouth(
 }
 
 /* ── Fix 5: Saccadic gaze + hemisphere eyelids + torus brows ── */
-type SimpleJoyState = 'idle' | 'listening' | 'speaking'
+type SimpleJoyState = 'idle' | 'thinking' | 'listening' | 'speaking'
 interface Rest {
   eyeLX: number
   eyeRX: number
@@ -352,7 +366,7 @@ class ExpressiveFaceController {
       this.nextSaccadeTime = t + 0.8
       this.targetGazeX = this.targetGazeY = this.curGazeX = this.curGazeY = 0
       this.curSquint = 0
-      this.curSmile = state === 'listening' ? 0.78 : 0.62
+      this.curSmile = state === 'listening' ? 0.78 : state === 'thinking' ? 0.52 : 0.62
       this.curOpen = this.curOoh = 0
       this.curBrowRaiseL = this.curBrowRaiseR = 0.008
       this.curBrowTiltL = 0.12
@@ -382,7 +396,11 @@ class ExpressiveFaceController {
     let blinkEnv = 0
 
     if (t >= this.nextSaccadeTime) {
-      if (state === 'listening') {
+      if (state === 'thinking') {
+        this.targetGazeX = 0.020 + Math.sin(t * 0.9) * 0.008
+        this.targetGazeY = 0.022 + Math.cos(t * 0.7) * 0.006
+        this.nextSaccadeTime = t + 0.9 + Math.random() * 1.1
+      } else if (state === 'listening') {
         this.targetGazeX = (Math.random() - 0.5) * 0.016
         this.targetGazeY = (Math.random() - 0.5) * 0.01
         this.nextSaccadeTime = t + 1.4 + Math.random() * 2.2
@@ -422,7 +440,7 @@ class ExpressiveFaceController {
       else blinkEnv = Math.sin(p * Math.PI)
     }
 
-    const targetSquint = state === 'listening' ? 0.14 : state === 'speaking' ? 0.06 : 0
+    const targetSquint = state === 'listening' ? 0.14 : state === 'thinking' ? 0.10 : state === 'speaking' ? 0.06 : 0
     this.curSquint = damp(this.curSquint, targetSquint, 10, dt)
     const lidClosure = Math.min(1, blinkEnv + this.curSquint)
 
@@ -450,7 +468,12 @@ class ExpressiveFaceController {
     let targetBrowTiltL = 0.12
     let targetBrowTiltR = -0.12
 
-    if (state === 'listening') {
+    if (state === 'thinking') {
+      targetBrowRaiseL = 0.026
+      targetBrowRaiseR = 0.005
+      targetBrowTiltL = 0.24
+      targetBrowTiltR = -0.08
+    } else if (state === 'listening') {
       targetBrowRaiseL = 0.024
       targetBrowRaiseR = 0.015
       targetBrowTiltL = 0.20
@@ -477,7 +500,11 @@ class ExpressiveFaceController {
     let targetOpen = 0
     let targetOoh = 0
 
-    if (state === 'listening') {
+    if (state === 'thinking') {
+      targetSmile = 0.48
+      targetOpen = 0
+      targetOoh = 0.08
+    } else if (state === 'listening') {
       targetSmile = 0.78
       targetOpen = 0.04
     } else if (state === 'speaking') {
@@ -496,7 +523,7 @@ class ExpressiveFaceController {
     nodes.mouth.setOpen(this.curOpen)
     nodes.mouth.setOoh(this.curOoh)
 
-    const targetBlush = state === 'speaking' ? 0.44 + Math.sin(t * 3.0) * 0.08 : state === 'listening' ? 0.48 : 0.36
+    const targetBlush = state === 'speaking' ? 0.44 + Math.sin(t * 3.0) * 0.08 : state === 'listening' ? 0.48 : state === 'thinking' ? 0.40 : 0.36
     nodes.blushMats.forEach(material => {
       material.opacity = damp(material.opacity, targetBlush, 6, dt)
     })
@@ -592,10 +619,44 @@ function buildRig() {
   sproutGroup.name = 'sprout'
   sproutGroup.position.set(0, HEAD_R * 0.97, 0)
   head.add(sproutGroup)
+  const stem = orb(sproutGroup, sage, [0, 0.025, 0], [0.015, 0.045, 0.015], 'sprout.stem')
+  stem.rotation.z = -0.05
   const leafL = orb(sproutGroup, sage, [-0.055, 0.055, 0], [0.042, 0.105, 0.025], 'leaf.L')
   const leafR = orb(sproutGroup, sage, [0.055, 0.065, 0], [0.042, 0.115, 0.025], 'leaf.R')
   leafL.rotation.z = 0.65
   leafR.rotation.z = -0.65
+
+  // Centerpiece collar + receptionist companion badge on chest
+  const collarGeo = new TorusGeometry(0.155, 0.026, 12, 28)
+  collarGeo.rotateX(Math.PI * 0.52)
+  geometries.push(collarGeo)
+  const collar = new Mesh(collarGeo, white)
+  collar.position.set(0, 0.175, 0.01)
+  collar.scale.set(1.12, 1.0, 0.96)
+  collar.name = 'collar'
+  collar.frustumCulled = false
+  chest.add(collar)
+
+  const badgeGroup = new Group()
+  badgeGroup.name = 'badgeGroup'
+  badgeGroup.position.set(-0.125, 0.035, 0.285)
+  badgeGroup.rotation.y = -0.32
+  badgeGroup.rotation.x = -0.10
+  chest.add(badgeGroup)
+  const badgeBase = orb(badgeGroup, peach, [0, 0, 0], [0.056, 0.040, 0.016], 'badge.base')
+  const badgePin = orb(badgeGroup, sage, [0, 0.002, 0.014], [0.020, 0.020, 0.010], 'badge.pin')
+  badgeBase.frustumCulled = badgePin.frustumCulled = false
+
+  // Floating 3D thought bubbles for the "Joy is thinking…" centerpiece state
+  const thoughtGroup = new Group()
+  thoughtGroup.name = 'thoughtBubbles'
+  thoughtGroup.position.set(0.38, 0.34, 0.18)
+  thoughtGroup.visible = false
+  head.add(thoughtGroup)
+  const thought1 = orb(thoughtGroup, white, [0, 0, 0], [0.024, 0.024, 0.024], 'thought.1')
+  const thought2 = orb(thoughtGroup, peach, [0.065, 0.075, 0.02], [0.036, 0.036, 0.036], 'thought.2')
+  const thought3 = orb(thoughtGroup, white, [0.145, 0.165, 0.04], [0.052, 0.046, 0.046], 'thought.3')
+  const thoughtOrbs = [thought1, thought2, thought3]
 
   const legGeo = new CapsuleGeometry(0.088, 0.22, 8, 16)
   geometries.push(legGeo)
@@ -662,6 +723,8 @@ function buildRig() {
   sides.forEach(({ x, name }) => {
     const eye = orb(head, ink, [0, 0, 0], [0.055, 0.093, 0.05], `eye.${name}`)
     placeOnHead(eye, x, 0.03, 0.010)
+    // Secondary lower-right pinpoint catchlight parented to the eye for centerpiece warmth
+    orb(eye, white, [0.22, -0.22, 0.92], [0.11, 0.075, 0.12], `subHl.${name}`)
     const hl = orb(head, white, [x - 0.018, 0.058, eye.position.z + 0.046], [0.015, 0.020, 0.011], `hl.${name}`)
 
     // Hemisphere eyelid cap that rotates on X
@@ -747,6 +810,13 @@ function buildRig() {
     rightArmMesh,
     leftHand,
     rightHand,
+    sproutGroup,
+    leafL,
+    leafR,
+    thoughtGroup,
+    thoughtOrbs,
+    lavender,
+    peach,
     eyes,
     highlights,
     lids,
@@ -766,8 +836,15 @@ function buildRig() {
   }
 }
 
-function Character({ state, encourageSignal, still }: SceneProps) {
-  const rig = useMemo(() => buildRig(), [])
+function Character({ state, thinking = false, persona = 'joy', encourageSignal, still }: SceneProps) {
+  const rig = useMemo(() => buildRig(), []);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as Record<string, unknown>
+      w.joyTestRig = rig
+      w.buildTestJoyRig = buildRig
+    }
+  }, [rig])
   const motion = useRef({
     time: 0,
     nodStart: -100,
@@ -802,8 +879,15 @@ function Character({ state, encourageSignal, still }: SceneProps) {
 
   useEffect(() => () => rig.dispose(), [rig])
 
+  useEffect(() => {
+    const palette = PERSONA_COLORS[persona] ?? PERSONA_COLORS.joy
+    rig.lavender.color.set(palette.primary)
+    rig.peach.color.set(palette.badge)
+    invalidate()
+  }, [persona, rig, invalidate])
+
   // Switching to demand rendering needs one final frame to apply the still pose.
-  useEffect(() => { invalidate() }, [still, invalidate])
+  useEffect(() => { invalidate() }, [still, thinking, invalidate])
 
   useEffect(() => {
     if (motion.current.nodSignal !== encourageSignal) {
@@ -844,32 +928,63 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     const isListening = state === 'listening'
     const isConnecting = state === 'connecting'
     const isEnded = state === 'ended'
+    const isThinking = Boolean(thinking && !isTalking && !isEnded && state !== 'paused')
 
-    const mapped: SimpleJoyState = isListening ? 'listening' : isTalking ? 'speaking' : 'idle'
+    const mapped: SimpleJoyState = isThinking
+      ? 'thinking'
+      : isListening
+        ? 'listening'
+        : isTalking
+          ? 'speaking'
+          : 'idle'
 
     rig.faceController.update(t, dt, mapped, rig.faceNodes, frameState.pointer, still)
+
+    // Animate sprout leaves and floating 3D thought bubbles when not still
+    if (still) {
+      rig.sproutGroup.rotation.set(0, 0, 0)
+      rig.leafL.rotation.z = 0.65
+      rig.leafR.rotation.z = -0.65
+      rig.thoughtGroup.visible = false
+    } else {
+      const sproutSway = Math.sin(t * (isTalking ? 3.4 : isThinking ? 1.8 : 1.1)) * (isTalking ? 0.09 : 0.05)
+      const perk = isListening ? -0.08 : isThinking ? -0.04 : 0
+      rig.sproutGroup.rotation.z = sproutSway + nod * 0.18
+      rig.leafL.rotation.z = 0.65 + perk + Math.sin(t * 2.1) * 0.04
+      rig.leafR.rotation.z = -0.65 - perk - Math.cos(t * 2.1) * 0.04
+
+      rig.thoughtGroup.visible = isThinking
+      if (isThinking) {
+        rig.thoughtOrbs.forEach((orbMesh, idx) => {
+          const wave = Math.sin(t * 3.2 - idx * 0.9)
+          const baseScale = idx === 0 ? 0.024 : idx === 1 ? 0.036 : 0.050
+          const s = baseScale * (1 + wave * 0.14)
+          orbMesh.scale.set(s, s, s)
+        })
+      }
+    }
 
     const targets = {
       rootY: 0,
       rootRotY: -0.12 + (still ? 0 : Math.sin(t * 0.55 + m.drift) * 0.045 + (isConnecting ? Math.sin(t * 1.6) * 0.08 : 0) + (frameState.pointer?.x ?? 0) * 0.05),
-      rootRotX: (isListening ? -0.03 : 0) + (frameState.pointer?.y ?? 0) * (still ? 0 : -0.03),
+      rootRotX: (isListening ? -0.03 : isThinking ? 0.02 : 0) + (frameState.pointer?.y ?? 0) * (still ? 0 : -0.03),
       rootScaleX: squashScaleXZ,
       rootScaleY: squashScaleY,
       rootScaleZ: squashScaleXZ,
-      spineX: still ? 0 : (isListening ? -0.04 : 0) + Math.sin(t * 0.7) * 0.015,
+      spineX: still ? 0 : (isListening ? -0.04 : isThinking ? 0.02 : 0) + Math.sin(t * 0.7) * 0.015,
       spineZ: still ? 0 : Math.sin(t * 0.6) * 0.018,
-      chestZ: still ? 0 : Math.sin(t * 0.85) * 0.018 + (isListening ? 0.018 : 0),
-      chestX: isListening ? -0.05 : isTalking ? -0.018 : 0,
-      neckX: nod * 0.35 + (isListening ? -0.06 : isTalking && !still ? Math.sin(t * 4.8) * 0.02 : 0),
-      neckZ: isListening ? 0.04 : 0,
-      headX: nod * 0.65 + (isTalking && !still ? Math.sin(t * 5) * 0.03 : 0),
-      headY: still ? 0 : isConnecting ? Math.sin(t * 1.4) * 0.14 : isTalking ? Math.sin(t * 0.95) * 0.10 : Math.sin(t * 0.38 + m.drift) * 0.12,
-      headZ: isListening ? 0.07 : still ? 0 : Math.sin(t * 0.36) * 0.05,
-      // Small, outward gestures keep hands clear of the belly.
+      chestZ: still ? 0 : Math.sin(t * 0.85) * 0.018 + (isListening ? 0.018 : isThinking ? -0.015 : 0),
+      chestX: isListening ? -0.05 : isTalking ? -0.018 : isThinking ? 0.015 : 0,
+      neckX: nod * 0.35 + (isListening ? -0.06 : isThinking ? 0.04 : isTalking && !still ? Math.sin(t * 4.8) * 0.02 : 0),
+      neckZ: isListening ? 0.04 : isThinking ? -0.04 : 0,
+      headX: nod * 0.65 + (isThinking ? 0.05 : isTalking && !still ? Math.sin(t * 5) * 0.03 : 0),
+      headY: still ? 0 : isThinking ? 0.08 + Math.sin(t * 0.7) * 0.04 : isConnecting ? Math.sin(t * 1.4) * 0.14 : isTalking ? Math.sin(t * 0.95) * 0.10 : Math.sin(t * 0.38 + m.drift) * 0.12,
+      headZ: isListening ? 0.07 : isThinking ? -0.065 : still ? 0 : Math.sin(t * 0.36) * 0.05,
+      // Small, outward gestures keep hands clear of the belly; thinking brings right hand gently up.
       upperLZ: -0.18 + (isTalking && !still ? -0.08 - Math.sin(t * 2.2) * 0.07 : 0),
-      upperRZ: isEnded ? 2.0 : 0.18 + (isTalking && !still ? 0.08 + Math.sin(t * 2.2 + 1) * 0.07 : 0),
+      upperRZ: isEnded ? 2.0 : isThinking ? 0.28 : 0.18 + (isTalking && !still ? 0.08 + Math.sin(t * 2.2 + 1) * 0.07 : 0),
       foreLX: -0.28 + (isListening ? -0.07 : isTalking && !still ? Math.sin(t * 3.1) * 0.16 : 0),
-      foreRX: isEnded ? -0.6 : -0.28 + (isListening ? -0.02 : isTalking && !still ? Math.sin(t * 3.1 + 0.8) * 0.16 : 0),
+      foreRX: isEnded ? -0.6 : isThinking ? -0.68 : -0.28 + (isListening ? -0.02 : isTalking && !still ? Math.sin(t * 3.1 + 0.8) * 0.16 : 0),
     }
 
     if (still) Object.assign(cur, targets)
@@ -939,9 +1054,13 @@ export default function JoyScene(props: SceneProps) {
       <directionalLight position={[-3, 5, 4]} intensity={2.5} color="#fff3e3" />
       <directionalLight position={[3, 2, -2]} intensity={1.3} color="#d8cbff" />
       <Character {...props} />
+      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.28, 0.66, 1]}>
+        <circleGeometry args={[1.05, 48]} />
+        <meshBasicMaterial color="#f4c6a6" transparent opacity={0.12} />
+      </mesh>
       <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.08, 0.55, 1]}>
         <circleGeometry args={[0.95, 48]} />
-        <meshBasicMaterial color="#a89bd4" transparent opacity={0.15} />
+        <meshBasicMaterial color="#a89bd4" transparent opacity={0.18} />
       </mesh>
     </Canvas>
   )

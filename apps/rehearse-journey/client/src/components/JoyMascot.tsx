@@ -3,8 +3,11 @@ import { Component, lazy, Suspense, type ReactNode } from 'react'
 import JoyPlaceholder from './JoyPlaceholder'
 
 export type JoyState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'
+export type JoyPersona = 'joy' | 'amani' | 'otieno' | 'wanjiku' | 'maina'
 export interface JoyMascotProps {
   state: JoyState
+  thinking?: boolean
+  persona?: JoyPersona
   encourageSignal?: number
   reduceMotion?: boolean
   className?: string
@@ -15,15 +18,35 @@ class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean
   static getDerivedStateFromError() { return { failed: true } }
   render() { return this.state.failed ? <JoyPlaceholder /> : this.props.children }
 }
-export default function JoyMascot({ state, encourageSignal = 0, reduceMotion = false, className = '' }: JoyMascotProps) {
+export default function JoyMascot({
+  state,
+  thinking = false,
+  persona = 'joy',
+  encourageSignal = 0,
+  reduceMotion = false,
+  className = '',
+}: JoyMascotProps) {
   const systemReducedMotion = useReducedMotion()
   const still = reduceMotion || systemReducedMotion || state === 'paused' || state === 'ended'
   return (
-    <div role="img" aria-label={`Joy, your rehearsal companion — ${state}`}
-      data-state={state} data-motion={still ? 'still' : 'animated'} className={`joy ${className}`}>
+    <div
+      role="img"
+      aria-label={`Joy, your rehearsal companion — ${thinking && state === 'idle' ? 'thinking' : state}`}
+      data-state={state}
+      data-thinking={thinking ? 'true' : 'false'}
+      data-persona={persona}
+      data-motion={still ? 'still' : 'animated'}
+      className={`joy ${className}`}
+    >
       <SceneBoundary>
         <Suspense fallback={<JoyPlaceholder />}>
-          <JoyScene state={state} encourageSignal={encourageSignal} still={still} />
+          <JoyScene
+            state={state}
+            thinking={thinking}
+            persona={persona}
+            encourageSignal={encourageSignal}
+            still={still}
+          />
         </Suspense>
       </SceneBoundary>
     </div>

@@ -35,8 +35,19 @@ import {
   BusFront,
   Banknote,
   ArrowRightLeft,
+  Gauge,
+  Activity,
 } from 'lucide-react'
 import SettingsDrawer from '@/presentation/SettingsDrawer'
+import ToolkitProfileAndSkillsPanel, {
+  useToolkitPreferences,
+} from '@/presentation/ToolkitProfileAndSkillsPanel'
+import { PersonaWorkspaceCallout } from '@/presentation/PersonaLogin'
+import {
+  ReadAloud,
+  setToolkitAdapter,
+  simplifyDirectionInstruction,
+} from '@/rehearsalToolkit'
 import { Button } from '@/components/ui/button'
 import type { RouteData } from '@/stories'
 
@@ -56,6 +67,7 @@ L.Marker.prototype.options.icon = defaultIcon
 export interface DirectionsProps {
   onBack: () => void
   onRehearseMatatu?: () => void
+  showPersonaCallout?: boolean
 }
 
 // Leaflet must recalculate its viewport when the responsive map changes size.
@@ -129,6 +141,38 @@ interface SensoryEnvironment {
 }
 
 const MAPS_API_KEY = import.meta.env.VITE_MAPS_API_KEY || ''
+
+// Map a noiseLevel label to a representative dB value for the meter bar
+// (40 dB = quiet room → 85 dB = busy street). Used for the visual meter only.
+function noiseDbValue(level: SensoryEnvironment['noiseLevel']): number {
+  if (level.startsWith('Low')) return 50
+  if (level.startsWith('Moderate')) return 65
+  return 78
+}
+
+// Map a busynessLevel label to a 1–3 tier for the crowd-icon scale.
+function crowdTier(level: SensoryEnvironment['busynessLevel']): 1 | 2 | 3 {
+  if (level === 'Calm / Quiet') return 1
+  if (level === 'Moderate Activity') return 2
+  return 3
+}
+
+// Color tokens for the busynessColor field (calm→sage, moderate→peach, busy→lavender).
+const SENSORY_COLOR_BG: Record<SensoryEnvironment['busynessColor'], string> = {
+  sage: 'bg-sage/30',
+  peach: 'bg-peach/40',
+  lavender: 'bg-lavender/35',
+}
+const SENSORY_COLOR_TEXT: Record<SensoryEnvironment['busynessColor'], string> = {
+  sage: 'text-sage',
+  peach: 'text-peach',
+  lavender: 'text-lavender',
+}
+const SENSORY_COLOR_BAR: Record<SensoryEnvironment['busynessColor'], string> = {
+  sage: 'bg-sage',
+  peach: 'bg-peach',
+  lavender: 'bg-lavender',
+}
 
 function parseDurationSeconds(raw: string | undefined): number {
   if (!raw) return 0
@@ -564,7 +608,11 @@ function findMatatuSaccosForRoute(
   ]
 }
 
-export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps) {
+export default function Directions({
+  onBack,
+  onRehearseMatatu,
+  showPersonaCallout = false,
+}: DirectionsProps) {
   const [origin, setOrigin] = useState('Nairobi CBD')
   const [destination, setDestination] = useState('')
   const [route, setRoute] = useState<RouteData | null>(null)
@@ -866,6 +914,31 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
   const walkSec = route ? Math.round((route.distance_meters / 1000) * 750) : 0
   const walkTimeLabel = formatDurationMinutes(walkSec)
   const currentStep = detailedSteps[selectedStep]
+  const toolkitSnap = useToolkitPreferences()
+  const { readAloud, plainWords, sensoryCalm } = toolkitSnap.adapters
+
+  const buildDirectionsNarration = () => {
+    if (!route) {
+      return 'Directions and Journey Preview. Enter a starting point and destination to find a candidate route, matatu Saccos, sensory conditions, and landmarks.'
+    }
+    const stepText = currentStep?.instruction
+      ? plainWords
+        ? simplifyDirectionInstruction(currentStep.instruction)
+        : currentStep.instruction
+      : ''
+    const sacco = saccoOptions.find(s => s.id === selectedSaccoId) ?? saccoOptions[0]
+    return [
+      `Route from ${routeEndpoints.origin} to ${routeEndpoints.destination}.`,
+      `Total distance ${totalKm} kilometers, estimated drive ${driveTimeLabel}.`,
+      stepText ? `Step ${selectedStep + 1} of ${detailedSteps.length}: ${stepText}.` : '',
+      sacco
+        ? `Suggested matatu: ${sacco.routeNumber} (${sacco.saccoName}), off-peak fare ${sacco.offPeakFareKes}. Say to conductor: ${sacco.conductorPhrase}`
+        : '',
+      sensory ? `Crowd estimate: ${sensory.busynessLevel}. ${sensory.quietHoursHint}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
 
   return (
     <section className="directions-section" aria-label="Get directions">
@@ -875,14 +948,57 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
             <ArrowLeft data-icon="inline-start" aria-hidden="true" /> Home
           </Button>
           <SettingsDrawer context="directions">
-            <section className="directions-settings">
-              <h3>Using directions</h3>
-              <p>Use Previous and Next at your own pace. The map shows the complete route. Your location is not tracked.</p>
-              <p>Google Maps provides the route. Supporting details may be unavailable.</p>
+            <ToolkitProfileAndSkillsPanel
+              context="directions"
+              buildNarration={buildDirectionsNarration}
+              defaultExpandToolkit
+            />
+            <section className="directions-settings border-t border-ink/15 pt-5">
+              <h3 className="font-semibold">Using directions</h3>
+              <p className="mt-1 text-sm">Use Previous and Next at your own pace. The map shows the complete route. Your location is not tracked.</p>
+              <p className="mt-1 text-sm">Google Maps provides the route. Supporting details may be unavailable.</p>
             </section>
           </SettingsDrawer>
         </div>
+        {readAloud && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => {
+                ReadAloud.stop()
+                setToolkitAdapter('readAloud', false, { origin: 'directions' })
+              }}
+            >
+              Stop page speech
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => ReadAloud.speak(buildDirectionsNarration())}
+            >
+              🔊 Read current route &amp; step aloud
+            </Button>
+          </div>
+        )}
         <div className="mt-4">
+          {showPersonaCallout && (
+            <div className="mb-4">
+              <PersonaWorkspaceCallout
+                activePersonaId={toolkitSnap.activePersonaId}
+                context="directions"
+                onReadAloud={() => {
+                  const next = !readAloud
+                  setToolkitAdapter('readAloud', next, {
+                    narrationText: next ? buildDirectionsNarration() : undefined,
+                    origin: 'directions',
+                  })
+                }}
+              />
+            </div>
+          )}
           <h2 className="directions-title">Directions &amp; Journey Preview</h2>
           <p className="mt-1 text-sm text-ink/75">
             Find your route, matatu Saccos &amp; fares, live weather, sensory conditions, and visual landmarks before you set off.
@@ -974,6 +1090,23 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
 
       {route && (
         <div className="directions-result space-y-6">
+          {sensoryCalm && sensory && (
+            <section
+              aria-label="Sensory-calm navigation summary"
+              className="rounded-2xl border-2 border-sage bg-sage/20 p-4 text-sm shadow-xs"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
+                <span>🌿 Sensory-Calm Navigation Active (Toolkit Adapter)</span>
+                <span className="rounded-full bg-white/85 px-3 py-0.5 text-xs">
+                  {sensory.busynessLevel} · {sensory.noiseLevel}
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed">
+                <strong>Best quiet window:</strong> {sensory.quietHoursHint}{' '}
+                <strong>Comfort tip:</strong> {sensory.sensoryTip}
+              </p>
+            </section>
+          )}
           {/* 1. Route Overview Banner */}
           <section
             className="route-overview rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
@@ -1109,7 +1242,9 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
 
                 {currentStep && (
                   <p className="current-instruction-text mt-4 text-lg font-semibold leading-snug text-ink">
-                    {currentStep.instruction || 'Continue along the route.'}
+                    {(plainWords
+                      ? simplifyDirectionInstruction(currentStep.instruction)
+                      : currentStep.instruction) || 'Continue along the route.'}
                   </p>
                 )}
 
@@ -1293,12 +1428,12 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
           {sensory && (
             <section
               aria-label="Environment, busyness, noise, and weather conditions"
-              className="route-section space-y-3.5 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
+              className="route-section space-y-4 rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-xs"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="route-section-heading flex items-center gap-2 text-base font-bold">
                   <Sparkles className="h-4 w-4 text-ink/75" aria-hidden="true" />
-                  Sensory estimates &amp; weather
+                  Sensory snapshot
                 </h3>
                 <span className="inline-flex items-center gap-1 rounded-full bg-mist px-3 py-0.5 text-xs font-medium">
                   <Clock className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1306,18 +1441,109 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                 </span>
               </div>
 
-              <div className="grid gap-3.5 sm:grid-cols-3">
-                {/* Weather Card */}
-                <div className="rounded-xl border border-ink/10 bg-cream/75 p-4">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/70">
-                    <CloudSun className="h-4 w-4" aria-hidden="true" />
-                    Weather
+              {/* Hero row: Crowd + Noise, color-coded with visual meters */}
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                {/* Crowd card — color-coded badge + 3-icon scale */}
+                <div className={`rounded-2xl border-2 p-4 ${SENSORY_COLOR_BG[sensory.busynessColor]} border-current/20`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/75">
+                      <Users className="h-4 w-4" aria-hidden="true" />
+                      Crowd
+                    </div>
+                    <span className={`rounded-full bg-white/90 px-2.5 py-0.5 text-xs font-bold ${SENSORY_COLOR_TEXT[sensory.busynessColor]}`}>
+                      {sensory.busynessLevel}
+                    </span>
                   </div>
-                  <p className="mt-1.5 text-sm font-bold">
-                    {sensory.weatherSummary}
-                    {sensory.temperatureC !== null ? ` · ${sensory.temperatureC}°C` : ''}
+                  {/* Crowd icon scale: 3 user icons, filled up to the tier */}
+                  <div className="mt-3 flex items-center gap-1.5" aria-hidden="true">
+                    {[1, 2, 3].map(i => (
+                      <span
+                        key={i}
+                        className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
+                          i <= crowdTier(sensory.busynessLevel)
+                            ? SENSORY_COLOR_BAR[sensory.busynessColor]
+                            : 'bg-white/60'
+                        }`}
+                      >
+                        <Users className={`h-3.5 w-3.5 ${i <= crowdTier(sensory.busynessLevel) ? 'text-white' : 'text-ink/40'}`} />
+                      </span>
+                    ))}
+                    <span className="ml-auto text-[11px] font-medium text-ink/70">
+                      {crowdTier(sensory.busynessLevel) === 1
+                        ? 'Plenty of space'
+                        : crowdTier(sensory.busynessLevel) === 2
+                          ? 'Steady foot traffic'
+                          : 'Busy / crowded'}
+                    </span>
+                  </div>
+                  <p className="mt-2.5 text-xs leading-relaxed text-ink/80">{sensory.busynessDetail}</p>
+                  <p className="mt-2 rounded-lg bg-white/85 px-2.5 py-1 text-[11px] font-medium text-ink/80">
+                    {sensory.quietHoursHint}
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-medium">
+                </div>
+
+                {/* Noise card — color-coded badge + dB meter bar */}
+                <div className={`rounded-2xl border-2 p-4 ${SENSORY_COLOR_BG[sensory.busynessColor]} border-current/20`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/75">
+                      <Volume2 className="h-4 w-4" aria-hidden="true" />
+                      Noise
+                    </div>
+                    <span className={`rounded-full bg-white/90 px-2.5 py-0.5 text-xs font-bold ${SENSORY_COLOR_TEXT[sensory.busynessColor]}`}>
+                      {sensory.noiseLevel}
+                    </span>
+                  </div>
+                  {/* dB meter bar: 40 → 85 dB scale, fill at the estimated value */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-[10px] font-medium text-ink/60">
+                      <span>40 dB</span>
+                      <span className="flex items-center gap-1 font-bold text-ink">
+                        <Gauge className="h-3 w-3" aria-hidden="true" />
+                        ~{noiseDbValue(sensory.noiseLevel)} dB
+                      </span>
+                      <span>85 dB</span>
+                    </div>
+                    <div className="relative mt-1 h-2.5 rounded-full bg-white/70" aria-hidden="true">
+                      {/* Scale ticks (sage→peach→lavender zones) */}
+                      <div className="absolute inset-0 flex">
+                        <div className="h-full w-1/3 rounded-l-full bg-sage/40" />
+                        <div className="h-full w-1/3 bg-peach/50" />
+                        <div className="h-full w-1/3 rounded-r-full bg-lavender/45" />
+                      </div>
+                      {/* Fill marker at the estimated dB value */}
+                      <div
+                        className={`absolute top-0 h-full rounded-full ${SENSORY_COLOR_BAR[sensory.busynessColor]}`}
+                        style={{ width: `${((noiseDbValue(sensory.noiseLevel) - 40) / (85 - 40)) * 100}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-ink/70">
+                      <Activity className="h-3 w-3" aria-hidden="true" />
+                      {noiseDbValue(sensory.noiseLevel) < 60
+                        ? 'Quiet indoor voices'
+                        : noiseDbValue(sensory.noiseLevel) < 75
+                          ? 'Conversation-level'
+                          : 'Street-level sounds'}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-ink/80">{sensory.noiseDetail}</p>
+                </div>
+              </div>
+
+              {/* Weather card — secondary, full width */}
+              <div className="rounded-xl border border-ink/10 bg-cream/75 p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/70">
+                  <CloudSun className="h-4 w-4" aria-hidden="true" />
+                  Weather
+                </div>
+                <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold">
+                      {sensory.weatherSummary}
+                      {sensory.temperatureC !== null ? ` · ${sensory.temperatureC}°C` : ''}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-ink/80">{sensory.weatherNote}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-[11px] font-medium">
                     {sensory.feelsLikeC !== null && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5">
                         <Sun className="h-3 w-3" aria-hidden="true" />
@@ -1342,30 +1568,6 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 text-xs leading-relaxed text-ink/80">{sensory.weatherNote}</p>
-                </div>
-
-                {/* Busyness Card */}
-                <div className="rounded-xl border border-ink/10 bg-cream/75 p-4">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/70">
-                    <Users className="h-4 w-4" aria-hidden="true" />
-                    Crowd estimate
-                  </div>
-                  <p className="mt-1.5 text-sm font-bold">{sensory.busynessLevel}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-ink/80">{sensory.busynessDetail}</p>
-                  <p className="mt-2 rounded-lg bg-white/85 px-2.5 py-1 text-[11px] font-medium">
-                    {sensory.quietHoursHint}
-                  </p>
-                </div>
-
-                {/* Noise Level Card */}
-                <div className="rounded-xl border border-ink/10 bg-cream/75 p-4">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/70">
-                    <Volume2 className="h-4 w-4" aria-hidden="true" />
-                    Noise estimate
-                  </div>
-                  <p className="mt-1.5 text-sm font-bold">{sensory.noiseLevel}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-ink/80">{sensory.noiseDetail}</p>
                 </div>
               </div>
 
@@ -1507,7 +1709,7 @@ export default function Directions({ onBack, onRehearseMatatu }: DirectionsProps
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="directions-step-text block font-medium">
-                        {s.instruction}
+                        {plainWords ? simplifyDirectionInstruction(s.instruction) : s.instruction}
                       </span>
                       {(distLabel || durLabel) && (
                         <span className="mt-1 inline-flex items-center gap-2 text-xs font-medium text-ink/70">

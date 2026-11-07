@@ -633,8 +633,8 @@ button { min-height: 44px; }
 .calm-me-button {
   position: fixed;
   z-index: 30;
-  top: max(78px, calc(env(safe-area-inset-top) + 54px));
-  right: max(28px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  right: max(24px, env(safe-area-inset-right));
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -698,8 +698,67 @@ button { min-height: 44px; }
 .calm-me-settings select { min-height: 42px; padding: 7px 10px; border: 1px solid var(--mist); border-radius: 10px; background: #fffdfa; color: var(--ink); }
 .calm-me-privacy { margin: 24px 0 0; color: #655e76; font-size: 12px; line-height: 1.6; }
 @media (max-width: 700px) {
-  .calm-me-button { top: max(64px, calc(env(safe-area-inset-top) + 44px)); right: max(14px, env(safe-area-inset-right)); padding: 10px 13px; }
+  .calm-me-button { bottom: max(16px, env(safe-area-inset-bottom)); right: max(14px, env(safe-area-inset-right)); padding: 10px 13px; }
   .calm-me-backdrop { align-items: end; padding: 12px; }
   .calm-me-dialog { max-height: calc(100dvh - 24px); border-radius: 22px; padding: 24px 20px max(24px, env(safe-area-inset-bottom)); }
   .calm-me-settings label { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* ── Problem Statement 6 Personalized UI Themes ─────────────────────────── */
+
+/* Person 2: Zawadi Wanjiku — Sensory-Calm Sanctuary UI */
+body[data-persona-ui="sensory-calm"] {
+  --cream: #eef5f1;
+  --mist: #d8e7de;
+  --lavender: #6b9e82;
+  --peach: #d7c9b3;
+  --sage: #5c9174;
+  --ink: #27362f;
+  background: #eef5f1;
+  color: #27362f;
+}
+body[data-persona-ui="sensory-calm"] .dashboard-card,
+body[data-persona-ui="sensory-calm"] .scenario-start,
+body[data-persona-ui="sensory-calm"] .joy-dialogue,
+body[data-persona-ui="sensory-calm"] .story-card,
+body[data-persona-ui="sensory-calm"] .current-instruction {
+  border-width: 2px;
+  border-color: #6b9e82;
+  background: #f8fbf9;
+  box-shadow: none;
+}
+body[data-persona-ui="sensory-calm"] .joy-stage-backdrop,
+body[data-persona-ui="sensory-calm"] .welcome-companion-backdrop {
+  background: radial-gradient(circle at 50% 42%, #eef6f0 0%, #d8e8de 100%);
+  border-color: #88b39a;
+}
+
+/* Person 3: Kamau Ochieng — Structured Focus & Dyslexia/ADHD UI */
+body[data-persona-ui="reading-focus"] {
+  --cream: #fdf8ec;
+  --mist: #f3e4c3;
+  --lavender: #d48b3b;
+  --peach: #edb97b;
+  --sage: #54856c;
+  --ink: #1e192b;
+  background: #fdf8ec;
+  color: #1e192b;
+  letter-spacing: 0.018em;
+  word-spacing: 0.055em;
+  line-height: 1.72;
+}
+body[data-persona-ui="reading-focus"] .dashboard-card,
+body[data-persona-ui="reading-focus"] .scenario-start,
+body[data-persona-ui="reading-focus"] .joy-dialogue,
+body[data-persona-ui="reading-focus"] .story-card,
+body[data-persona-ui="reading-focus"] .current-instruction {
+  border: 2px solid #2b233d;
+  border-left: 7px solid #d48b3b;
+  background: #fffdf7;
+}
+body[data-persona-ui="reading-focus"] .welcome-companion-backdrop,
+body[data-persona-ui="reading-focus"] .joy-stage-backdrop {
+  background: radial-gradient(circle at 50% 42%, #fff9ea 0%, #f5e5c2 100%);
+  border: 2px solid #d48b3b;
+}
+

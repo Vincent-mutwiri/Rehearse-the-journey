@@ -1,255 +1,235 @@
-# AI for Accessibility Toolkit
+# Rehearse the Journey (Kioo Companion)
 
-**An open toolkit for building apps that adapt to each person's accessibility needs.**
+**A personalized, self-paced AI rehearsal and sensory journey-planning companion built on the AI for Accessibility Toolkit.**
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Hackathon](https://img.shields.io/badge/AI%20for%20Accessibility%20Hackathon-Problem%20Statement%206-9b87f5)](Project/PRD.md)
 
-[What it is](#what-it-is) · [Key terms](#key-terms) · [Who it's for](#who-its-for) · [Try it](#try-it) · [Contributing](#contributing) · [Docs](docs/README.md)
+**Event:** AI for Accessibility Hackathon · Sat Nov 7, 2026 · Senses Hub, Nairobi  
+**Team 6:** Austin Obimbo, Gathoni Karume, Bakhoya Audry Imbukwa, John Mokaya, Vincent Mutwiri  
+**Built on:** [AI for Accessibility Toolkit (`toolkit/`, `tools/adapters/`, `toolkit/adapter-mcp/`)](toolkit/) + [Pipecat WebRTC (`apps/rehearse-journey/bot/`)](apps/rehearse-journey/bot/) + [React 18 / Three.js / Vite (`apps/rehearse-journey/client/`)](apps/rehearse-journey/client/)
 
 ---
 
-**Not a developer?** The browser extensions built on this toolkit are in the
-[extension repository](https://github.com/AI-for-Accessibility-Collective/AI-for-Accessibility-Extension),
-with an install guide that needs no coding. There's also a plain-language
-overview in [docs/TLDR.md](docs/TLDR.md).
+## 1. Overview & Problem Statement
 
-## What it is
+For a person with a cognitive, neurodivergent, sensory, or psychosocial disability, everyday Nairobi journeys — navigating a busy matatu stage, checking in at a hospital reception desk, visiting a Huduma Centre counter, or asking a passerby for directions — can feel overwhelming, unpredictable, and stressful.
 
-The toolkit is a set of parts a developer can use to make an app adapt to a
-person. It can:
+**Rehearse the Journey (Kioo Companion)** gives people a calm, safe, self-paced space to:
+1. **Preview a real journey before setting off (`Get Directions`)** — see the route on a map, know which matatu Sacco to board, check off-peak vs. peak KES fares, learn the exact Kiswahili phrase for the conductor (*“Shukisha hapa, tafadhali”*), preview photos and landmarks, and check live weather, crowd busyness, quiet hours, and noise estimates.
+2. **Rehearse the conversation step-by-step (`Practice Arena`)** — practise speaking or typing with friendly 3D companions (**Receptionist Joy**, **Conductor Otieno**, **Officer Wanjiku**, **Passerby Maina**, and fellow visitor **Amani**) across four controllable difficulty levels, with an interactive **StoryCard & Practice Map** beside the mascots.
+3. **Stay in 100% control (`Approval Gate`, `Decompress`, & `AI for Accessibility Toolkit`)** — every step-advancing action goes through an explicit **Approve / Deny** gate, the microphone always starts **off**, a persistent **Decompress** button offers grounding Swahili/Sheng affirmations anytime, and the person's **AI for Accessibility Toolkit Profile (`AbilityModel`)**, **Skills (`SKILL.md` playbooks)**, and **9 Accessibility Adapters** adapt both **Directions** and **Practice Arena** automatically.
 
-- learn what a person needs, e.g., larger text or fewer animations,
-- keep those needs in a profile on the person's device,
-- and turn the profile into skills, which are sets of adaptations that change
-  the app for that person.
+---
 
-You choose which parts to use and how your app uses them.
+## 2. System Architecture
 
 ```mermaid
-flowchart LR
-  accTitle: How the toolkit fits
-  accDescr: A person says what they need. Inside the toolkit, a profile stores those needs and a skill says which adaptations fit. The host application applies the adaptation on its own surface. The person approves, corrects or undoes it, and the profile learns from that. A developer takes whichever toolkit components suit their application.
-  subgraph T[The toolkit: take the components that fit your application]
-    direction LR
-    A[Profile<br/>the person's own, shared only<br/>with their permission] --> S[Skill<br/>which adaptations, at what settings]
+flowchart TB
+  subgraph Client["React + TypeScript + R3F Client (apps/rehearse-journey/client)"]
+    Dash["Dashboard<br/>Practice Arena · Interactive Stories · Get Directions"]
+    Sim["Practice Arena View<br/>Two-Mascot 3D Stage (Joy & Amani)<br/>+ Live Dialogue + StoryCard Rail"]
+    Dir["Get Directions & Journey Preview<br/>Leaflet Map · Matatu Saccos & Fares<br/>Sensory/Noise/Quiet Hours · Landmarks · Weather"]
+    Decomp["Decompress Modal<br/>Kenyan Swahili/Sheng Affirmations<br/>+ Slow Count (Moja → Tano)"]
+    Gate["Deterministic Approval Controller<br/>20-Case Gate (go_to_step, save_checklist, enable_camera)"]
   end
-  P[A person<br/>says what they need] --> A
-  S --> D[Adaptation<br/>the host application applies it,<br/>on its own surface]
-  D --> V[The person approves,<br/>corrects or undoes]
-  V -- the profile learns --> A
+
+  subgraph Toolkit["Embedded AI for Accessibility Toolkit (rehearsalToolkit.ts)"]
+    Lib["Librarian + Datastore<br/>createToolkit({ kv, toolsRegistry, builtinSkills })"]
+    Prof["AbilityModel Profile Presets<br/>Sensory & Calm · Low Vision · Reading Focus · Motor"]
+    Skills["Toolkit Skills (SKILL.md Playbooks)<br/>librarian.resolveSkill() & findSkillForNeed()"]
+    Adapters["9 Live Accessibility Adapters<br/>ReadAloud · PlainerWords · StopAutoAdvance · MotionReducer<br/>SensoryCalm · BigTargets (44px+) · DarkMode · ReadingRuler · BionicReading"]
+    MCP["Adapter MCP Live Provider<br/>createAdapterProvider + fromToggleAdapter"]
+  end
+
+  subgraph Bot["Pipecat Python WebRTC Bot (apps/rehearse-journey/bot)"]
+    RTVI["StoryRTVIProcessor<br/>SmallWebRTC + RTVI Protocol"]
+    Flows["FlowEngine (flow_config.py / flow_engine.py)<br/>4 Scenarios × 4 Levels + L3 Diversions"]
+    Multi["MultiAgentBus (multi_agent.py)<br/>Speaker Handoff & L4 Parallel Fan-out"]
+    Prov["ProviderRegistry + FallbackChainCoordinator<br/>Gemini REST/TTS · Gemini Live · OpenAI · Text-Only"]
+    Media["Maps Routes API v2 (maps.py)<br/>+ Async Gemini Story Illustrations (image_gen.py)"]
+  end
+
+  Dash --> Sim
+  Dash --> Dir
+  Sim <--> Gate
+  Sim <--> Toolkit
+  Dir <--> Toolkit
+  Lib --> Prof --> Skills --> Adapters --> MCP
+  Sim <-->|"SmallWebRTC + RTVI"| RTVI
+  RTVI --> Flows
+  RTVI --> Multi
+  RTVI --> Prov
+  RTVI --> Media
 ```
-
-A person says what they need, the profile picks skills that fit, your app
-applies the adaptations, and the person can approve, correct or undo each one.
-The profile learns from those choices.
-
-The same profile works across platforms. For example, a profile with larger
-text (`textSize` 1.5), a dark theme and reduced motion becomes these settings
-in the renderers in [`toolkit/surfaces/`](toolkit/surfaces/):
-
-| Surface | What the host receives |
-|---|---|
-| `web.js` | `{ "fontScale": 150, "darkMode": true, "motionReducer": true }` |
-| `mobile.js` | `{ "text": { "scalePercent": 150, ... }, "display": { "darkMode": true, ... }, "motion": { "reduceMotion": true }, "touch": { "minTargetPt": 44 }, ... }` |
-| `xr.js` | `{ "text": { "angularSizeDeg": 0.525, "worldHeightM": 0.014 }, "ui": { "maxEccentricityDeg": 20, "darkEnvironmentPreferred": true }, "motion": { "reduced": true, "comfortVignette": true, "snapTurning": true }, ... }` |
-
-The mobile settings use the same names as the accessibility settings in iOS
-and Android. The XR renderer gives text size as an angle at the eye, since a
-font size doesn't mean much in a headset. A person only needs to set up their
-profile once to use it on all three.
-
-### Key terms
-
-These four words are used throughout the docs. The code uses its own names for
-them, listed in the last column. See [docs/GLOSSARY.md](docs/GLOSSARY.md) for
-every term and [docs/architecture.md](docs/architecture.md) for how the parts
-fit together.
-
-| Word | Meaning | In the code |
-|---|---|---|
-| **Need** | What a person says they need, in their own words | free text, `supportAreas`, onboarding steps, `needs[]` entries |
-| **Profile** | What the toolkit knows about a person's needs, shared with other apps only with the person's permission | the **AbilityModel** (the profile in a form every renderer can read) and the **Librarian** (the agent that keeps the profile, learns from setting changes, and controls what other apps can read); grants, no-memory zones, the proposal queue |
-| **Skill** | Which adaptations to apply, and with what settings, for a need | a `SKILL.md` recipe; the **Engineer** (the agent that writes a skill from a person's need and profile, which the person checks before it's saved); the registry in `toolkit/registry/` |
-| **Adaptation** | A change an app makes for the person | adapter modules in `tools/adapters/`; auditors; validators; presets; renderers; the ports an app implements |
-
-## What it isn't
-
-- **Not an auditor.** An auditor scans a site and gives the developer a report.
-  This toolkit changes an app for the person using it, based on their profile.
-- **Not an overlay.** An overlay is added by a site owner and gives everyone
-  the same widget. With this toolkit, each person's own profile decides what
-  changes, and site owners don't install anything.
-- **Not assistive technology.** It doesn't replace a screen reader, a
-  magnifier or anything else a person relies on.
-- **Not an app or a browser project.** The core has no user interface. We
-  started with the browser because it was the easiest way to get feedback from
-  people, but web, mobile, XR, desktop and server apps are all supported.
-
-## Status
-
-This is a research prototype (pre-alpha), and things may break or change
-without notice. The adaptations in the catalog are demos and haven't been
-formally validated with the people they're meant for. The presets are
-starting points based on published research (see
-[docs/PROFILE-CARDS.md](docs/PROFILE-CARDS.md)).
-
-The toolkit comes from the
-[AI for Accessibility Collective](docs/HOW-THIS-WAS-BUILT.md). The current
-research phase ends in November 2026, and plans after that aren't decided yet.
-Open work is listed in [ROADMAP.md](ROADMAP.md).
-
-## Who it's for
-
-- People who want pages adapted to them: use the browser extensions in the
-  [extension repository](https://github.com/AI-for-Accessibility-Collective/AI-for-Accessibility-Extension),
-  and tell us how they work for you.
-- Developers building an app on the web, mobile, XR, desktop or a server: use
-  any mix of the core, the skills and the catalog.
-- Developers extending the toolkit: add skills, adapters, auditors and presets
-  (see [CONTRIBUTING.md](CONTRIBUTING.md)).
-- Researchers working on AI agents: use the design principles and the
-  architecture, and share benchmarks, evaluation methods and findings.
-
-## Try it
-
-No install, API key or browser needed. From a clone of the repository:
-
-```bash
-node toolkit/hosts/xr-demo/demo.js      # a profile made on the web is shared with an XR app
-node toolkit/hosts/skill-demo/demo.js   # finds, builds, checks and saves a skill
-node examples/cross-surface.mjs         # one profile turned into web and XR settings
-```
-
-[docs/QUICKSTART.md](docs/QUICKSTART.md) walks through the code, and
-[`toolkit/API.md`](toolkit/API.md) lists every method.
-
-## Building on it
-
-There are four ways to use the toolkit:
-
-1. Use the core directly in any JavaScript runtime. `createToolkit({ ports })`
-   returns `{ datastore, librarian }`. Implement the ports for your platform,
-   starting from the Node version in
-   [`toolkit/platforms/node/`](toolkit/platforms/node/). There's also a Chrome
-   version in [`toolkit/platforms/chrome/`](toolkit/platforms/chrome/).
-2. Call the hosted service from any language. Run [`server/`](server/) locally
-   or on Cloud Run, and call the same Librarian methods over HTTP with a bearer
-   token (see [server/README.md](server/README.md)).
-3. Use the catalog. The skills, adapters, auditors and presets in
-   [`tools/`](tools/) and the registry in
-   [`toolkit/registry/`](toolkit/registry/) work with or without the core.
-4. Use one of the experimental parts: a Controller that drives apps by text or
-   voice, an example onboarding service, or a command-line tool (CLI).
-
-[docs/COMPONENTS.md](docs/COMPONENTS.md) has more on each.
-
-To work with the toolkit visually, run `npm run dev:developer` (or
-`npm run dev:workshop`, which also lets other local pages connect), make an
-account at `http://localhost:8080/admin`, and sign in at
-`http://localhost:8080/developer`. Signing in gives you a **default token** for
-your apps. The console's pages:
-
-- **Profiles:** edit test profiles, save presets to your account, or load one
-  of nine W3C WAI-inspired profiles. Loading one updates the toolkit at once.
-- **Adapters:** write an adapter for any website, run it in your browser with
-  the [adapter runtime extension](extension/README.md), and share it; run
-  adapters others shared. Apps built with the
-  [Adapter MCP SDK](toolkit/adapter-mcp/README.md) share theirs through the
-  same registry, and coding agents can use it over MCP.
-- **Apps:** apps built with the SDK, grouped by app: what each shares and
-  installs, and, while one is open, live control of its adapters. The Redbird
-  demo store opens from here already connected.
-- **Listings:** the adapter descriptions apps have listed on this instance.
-  See [docs/ADAPTER-MARKETPLACE.md](docs/ADAPTER-MARKETPLACE.md).
-- **Account & tokens:** your default token, extra app tokens, and your password.
-
-Adapter MCP is a pre-alpha draft and the adapters are not validated with the
-people they are meant for, so treat what you build with it as a prototype to
-learn from. [server/README.md](server/README.md#running-a-workshop) has the
-steps for running a workshop.
-
-### What your app needs to provide
-
-- Ports: a `KVStore` is required, and `Clock`, `Scheduler` and `Consent` have
-  defaults.
-- An actuation port, if your app applies changes to a live page or screen.
-- An LLM caller, if you want the AI features.
-- An onboarding step that records a person's needs in their profile.
-
-> **Note**: the default `Consent` does nothing, so if you don't connect your
-> own, the toolkit's suggested profile changes are never shown to anyone.
-
-Without an AI provider, everything except the AI features still works, and
-adapters return fewer results instead of failing. See
-[docs/COMPONENTS.md](docs/COMPONENTS.md#what-a-host-implements) for details,
-including the two places AI plugs in.
-
-## Contributing
-
-[CONTRIBUTING.md](CONTRIBUTING.md) explains how to set up the repository and
-open a pull request. The main ways to contribute are:
-
-- [Share feedback](CONTRIBUTING.md#share-feedback) on the toolkit or the
-  extensions
-- [Write a skill](CONTRIBUTING.md#write-a-skill) (no code needed)
-- [Add an adapter](CONTRIBUTING.md#add-an-adapter)
-- [Add an auditor](CONTRIBUTING.md#add-an-auditor)
-- [Build an example app](CONTRIBUTING.md#build-an-example-app)
-
-If you're building an app with the toolkit, it's still your job to make the
-app accessible. Adapters fix problems after the fact, so it's better to plan
-for accessibility from the start. The
-[W3C guide to planning accessibility](https://www.w3.org/WAI/planning-and-managing/)
-is a good place to begin.
-
-## Security and license
-
-To report a vulnerability, see [SECURITY.md](SECURITY.md). It also lists what
-to know before deploying, e.g., how API keys and profile ids are handled.
-
-Only the Librarian writes to a person's profile, the toolkit doesn't keep
-notes on sensitive kinds of sites (finance, health and government by
-default), and other apps can read a profile only with a grant the person can
-revoke.
-
-Licensed under Apache 2.0 ([LICENSE](LICENSE)).
-
-## Repository layout
-
-```
-toolkit/     Platform-agnostic core: Librarian, datastore, ability model, grants,
-             skill engine, ports, sync, protocol, surfaces, the tools registry,
-             reference platform bindings, and the runnable demo hosts
-tools/       Developer catalog: adapters, auditors, validators, profiles, utils,
-             and the ArtInsight knowledge module under insights/
-controller/  Optional text/voice control surface: ControlPort, grammar, mounts,
-             remote transport, web UI, demo (a sibling; the core never depends on it)
-server/      Hosted HTTP service exposing the core to any language/runtime
-cli/         Experimental Python CLI: try the catalog on a live page from a terminal
-onboarding/  Example web service: /chat, /onboarding, /controller on one port
-examples/    A runnable, dependency-free example
-docs/        Quick start, glossary, components, architecture, design docs
-scripts/     Repository checks (the packed-package fixture)
-```
-
-The paths that changed when the extensions moved to their own repository are
-listed at the top of [docs/README.md](docs/README.md). Who built this and how:
-[docs/HOW-THIS-WAS-BUILT.md](docs/HOW-THIS-WAS-BUILT.md).
 
 ---
 
-<h2 align="center">AI for Accessibility Collective</h2>
+## 3. Key Features
 
-<div align="center">
-<p>
-  <a href="https://www.stanford.edu/"><img src="docs/logos/stanford.png" alt="Stanford University logo, links to the Stanford website" height="38"></a>
-  &nbsp;&nbsp;
-  <a href="https://www.washington.edu/"><img src="docs/logos/uw.png" alt="University of Washington logo, links to the UW website" height="32"></a>
-  &nbsp;&nbsp;
-  <a href="https://www.media.mit.edu/"><img src="docs/logos/mit.png" alt="MIT Media Lab logo, links to the Media Lab website" height="35"></a>
-  &nbsp;&nbsp;
-  <a href="https://www.disabilityinnovation.com/"><img src="docs/logos/gdi.jpg" alt="UCL Global Disability Innovation Hub logo, links to the GDI Hub website" height="35"></a>
-  &nbsp;&nbsp;
-  <a href="https://www.google.org/"><img src="docs/logos/google.png" alt="Google.org logo, links to the Google.org website" height="28"></a>
-</p>
-</div>
+### A. Interactive Role-Play Practice Arena (`Practice Arena`)
+- **Two-Mascot 3D Stage (`JoyCenterpiece.tsx`, `JoyScene.tsx`):**
+  - Procedural Three.js / React Three Fiber 3D characters (**Receptionist Joy**, **Conductor Otieno**, **Officer Wanjiku**, **Passerby Maina**) on the left and **Visitor/Passenger Amani** (your practice partner) on the right, angled toward each other with live speech bubbles underneath each character.
+  - Respects OS `prefers-reduced-motion` and the toolkit's **Reduce Motion** / **Stop Auto-Advance** adapters by switching the WebGL canvas to `frameloop="demand"` static rendering without cutting off audio.
+- **4 Everyday Nairobi Scenarios × 4 Complexity Levels (`flow_config.py`, `flow_engine.py`):**
+  1. **Hospital Reception** (*Receptionist Joy* & *Patient Amani*)
+  2. **Matatu Stage · Route 46** (*Conductor Otieno* & *Passenger Amani*)
+  3. **Government Service Desk** (*Officer Wanjiku* & *Citizen Amani*)
+  4. **Asking for Directions** (*Passerby Maina* & *Shopkeeper Amani*)
+  - **Levels:**
+    - **Level 1 · Easy Start:** Short, predictable 4-step conversation flow.
+    - **Level 2 · Everyday Practice:** Follow-up questions (e.g., choosing General Clinic vs. Dental Desk, M-Pesa vs. cash).
+    - **Level 3 · Handling Changes:** Practices unexpected real-world changes calmly (e.g., Waiting Area B relocated to Room 4; Stage 3 closed for roadworks → Roundabout Stage diversion; ticket printer outage → Counter 5 paper queue).
+    - **Level 4 · Busy Environment:** Multi-agent handoff (`Joy ↔ Amani`) and parallel fan-out where two people speak and the user chooses whom to answer.
+- **Interactive StoryCard & Practice Map (`StoryCard.tsx`, `stories.tsx`):**
+  - Shown alongside Joy & Amani in the right-hand rail inside the Practice Arena (and browsable standalone from the Dashboard).
+  - Manual **Back / Next / Done** paging (never auto-advances), combining plain-language orientation slides, SVG floor plans, live **Google Maps Routes API (v2)** Leaflet routes, and asynchronous **Gemini (`gemini-3.1-flash-image`)** storybook illustrations.
+- **Ask for Clarity Mode (`clarity.py`):**
+  - Optional toggle (20%, 40%, or 60% frequency) that introduces gentle, realistic missing details so the user can practise asking clarifying questions in English, Kiswahili, or Sheng, with an optional **Need a hint?** prompt.
+- **Deterministic 20-Case Approval Controller (`approvalController.ts`, `useApprovalGate.ts`):**
+  - Sole authority over step progression (`go_to_step`), checklist persistence (`save_checklist`), and sign-reader camera consent (`enable_camera`). Prompt injection or model requests can never advance a gated step without explicit human approval.
+
+### B. Directions & Sensory Journey Preview (`Get Directions`)
+- **Route Overview & Interactive Map (`Directions.tsx`):**
+  - Calls **Google Maps Routes API (v2)** to plot the full route on an interactive **Leaflet + OpenStreetMap** map with total distance, driving/matatu time, walking estimate, and step-by-step checkpoints, clearly labelled *"Candidate path — confirm with your co-designer."*
+- **Nairobi Matatu Saccos, Stages & Fare Estimator:**
+  - Matches corridors (Mbagathi/KNH Upper Hill, CBD/GPO Huduma, Thika Rd/KCA, Westlands) to real Nairobi routes (e.g. Route 7C/46, Route 34/125, Super Metro, 2NK, Citi Hoppa, KBS), showing **Boarding Stage**, **Alighting Stage**, **Off-Peak vs. Peak KES Fares**, payment methods, and **What to say to the conductor** (plus a 1-click button to rehearse the trip with Conductor Otieno).
+- **Sensory Estimates & Live Weather:**
+  - Combines **Open-Meteo** live weather (temperature, feels-like, humidity, wind, rain probability) with time-of-day crowd busyness (*Calm / Moderate / Busy*), quiet visiting hours, noise level estimates (`~45–75+ dB`), and actionable sensory comfort tips.
+- **Visual Place Previews & Landmarks:**
+  - Pulls destination photos and nearby landmarks via **Google Places API (New)** with automatic fallback to calm illustrated SVG entrance previews.
+
+### C. Persistent Decompress Grounding Modal (`CalmMe.tsx`)
+- Always reachable in the top-right corner (**Decompress**).
+- Immediately pauses any active rehearsal audio/mic and guides the user through spoken Kenyan Swahili/Sheng affirmations followed by a calm, unhurried count from **Moja (1)** to **Tano (5)**.
+
+---
+
+## 4. AI for Accessibility Toolkit Integration
+
+Rehearse the Journey is built directly on top of the repository's **AI for Accessibility Toolkit** (`toolkit/`, `tools/adapters/`, `toolkit/adapter-mcp/`), wired in [`apps/rehearse-journey/client/src/rehearsalToolkit.ts`](apps/rehearse-journey/client/src/rehearsalToolkit.ts) and [`ToolkitProfileAndSkillsPanel.tsx`](apps/rehearse-journey/client/src/presentation/ToolkitProfileAndSkillsPanel.tsx):
+
+1. **Embedded Librarian & Datastore Core (`createToolkit` from `toolkit/index.js`):**
+   - Persists the user's profile and episodic observations in browser storage (`rtj_toolkit_kv:*`), maps `AbilityModel` needs to web settings via `renderWebSettings` (`toolkit/surfaces/web.js`), and logs adapter/skill actions via `librarian.logObservation(...)`.
+2. **5 Built-In `AbilityModel` Profile Presets:**
+   - **Standard Profile (Default)**
+   - **Sensory & Calm Commute** (`sensory`, `cognitive` → enables *Plainer Words*, *Stop Auto-Advance*, *Reduce Motion*, and *Sensory-Calm Mode*)
+   - **Low Vision & Audio Guide** (`vision`, `reading` → enables *Read Page Aloud*, *Bigger Click Targets 44px+*, and *High Contrast / Dark Mode*)
+   - **Dyslexia & Focus Reading** (`reading`, `cognitive` → enables *Plainer Words*, *Reading Ruler*, and *Bionic Reading*)
+   - **Motor & Touch Comfort** (`motor` → enables *Bigger Click Targets 44px+*, *Stop Auto-Advance*, and *Reduce Motion*)
+3. **4 Composable Toolkit Skills (`SKILL.md` Playbooks via `librarian.resolveSkill` & `librarian.findSkillForNeed`):**
+   - **⚡ Calm Commute & Matatu Navigator** (`sensory-calm` + `simplify-text` + `motion-reducer` + `stop-auto-advance`)
+   - **⚡ Audio-First Landmark & Step Reader** (`read-aloud` + `big-targets` + `simplify-text`)
+   - **⚡ Dyslexia & Focus Reading Kit** (`bionic-reading` + `reading-ruler` + `simplify-text`)
+   - **⚡ Calm Rehearsal Pace** (`stop-auto-advance` + `motion-reducer` + `big-targets` + `simplify-text`)
+4. **9 Active Toolkit Adapters Across Both `Directions` & `Practice Arena`:**
+   - `ReadAloud` (`tools/adapters/read-aloud.js`)
+   - `PlainerWords` (`simplifyStepText` & `simplifyDirectionInstruction`)
+   - `StopAutoAdvance` (`tools/adapters/stop-auto-advance.js` with WebRTC voice preservation)
+   - `MotionReducer` (`tools/adapters/motion-reducer.js` + 3D canvas `still` bridge)
+   - `SensoryCalmAdapter` (promotes quiet-hours & low-noise banner above the route map)
+   - `BigTargets` (`tools/adapters/big-targets.js` — WCAG 2.5.8 $\ge 44\times 44\text{px}$ targets)
+   - `DarkMode` (`tools/adapters/dark-mode.js` — high-contrast dark theme preserving maps, photos, and 3D canvases)
+   - `ReadingRuler` (`tools/adapters/reading-ruler.js` — cursor-following horizontal reading band)
+   - `BionicReading` (`tools/adapters/bionic-reading.js` — word-prefix bolding for saccade anchoring)
+5. **Adapter MCP Live Control (`toolkit/adapter-mcp/index.js`):**
+   - Exports all 9 adapters through `createAdapterProvider` + `fromToggleAdapter` + `defineDescriptor` (`appId: 'rehearse-journey'`) and connects to a live Toolkit server when `VITE_TOOLKIT_URL` and `VITE_TOOLKIT_TOKEN` are configured.
+
+---
+
+## 5. Quick Start
+
+### Prerequisites
+- **Node.js 20+** and **pnpm**
+- **Python 3.12+** and **uv**
+
+### 1. Start the Pipecat Bot Backend (Terminal 1)
+```bash
+cd apps/rehearse-journey/bot
+uv sync
+uv run bot.py
+# Listening on http://localhost:7860
+```
+
+Configure `apps/rehearse-journey/bot/.env` with your provider keys (never commit `.env`):
+```env
+GOOGLE_API_KEY=your_gemini_key
+OPENAI_API_KEY=your_openai_key
+maps_api=your_google_maps_routes_and_places_key
+USE_GEMINI_LIVE=0
+```
+*(If no voice provider key is set or audio is turned off in the user's profile, the bot automatically falls back to `DeterministicTextOnlyLLMProcessor` so typed rehearsal and Flow progression always work offline.)*
+
+### 2. Start the React + Vite Client (Terminal 2)
+```bash
+cd apps/rehearse-journey/client
+pnpm install
+pnpm dev --port 3000
+# Open http://localhost:3000 in Chrome
+```
+
+Optional client environment (`apps/rehearse-journey/client/.env.local`):
+```env
+VITE_MAPS_API_KEY=your_google_maps_routes_and_places_key
+VITE_TOOLKIT_URL=http://localhost:8080
+VITE_TOOLKIT_TOKEN=aat_your_default_token
+```
+
+---
+
+## 6. Verification & Automated Tests
+
+```bash
+# 1. Backend v1.1 Sprints & Flow/Approval/Provider Regression Suite
+./apps/rehearse-journey/bot/.venv/bin/python3 apps/rehearse-journey/bot/test_v11_sprints.py
+
+# 2. Client TypeScript + Production Bundle Check
+pnpm --dir apps/rehearse-journey/client build
+
+# 3. Playwright Browser Regressions (with Vite running on http://127.0.0.1:3000)
+python3 apps/rehearse-journey/client/test/story-card.py http://127.0.0.1:3000
+python3 apps/rehearse-journey/client/test/mascot-dialogue.py http://127.0.0.1:3000
+python3 apps/rehearse-journey/client/test/rehearsal-integration.py http://127.0.0.1:3000
+python3 apps/rehearse-journey/client/test/session-settings.py http://127.0.0.1:3000
+python3 apps/rehearse-journey/client/test/s45-accessibility.py http://127.0.0.1:3000
+```
+
+---
+
+## 7. Toolkit Issues Logged (`Project/toolkit-issues.md`)
+
+As part of building on the AI for Accessibility Toolkit and contributing back, we logged **5 reproducible toolkit integration issues** in [`Project/toolkit-issues.md`](Project/toolkit-issues.md):
+
+| ID | Area | Summary | Severity | Status |
+|---|---|---|---|---|
+| **TKI-001** | `adapters/stop-auto-advance` | `StopAutoAdvance.enable()` pauses all `<audio>` elements, muting live conversational WebRTC voice output | `major` | `open` |
+| **TKI-002** | `adapters/motion-reducer` | Canvas animation needs a separate app-level reduced-motion bridge | `minor` | `open` |
+| **TKI-003** | `adapters / TypeScript` | Browser adapter imports in `tools/adapters/` have no TypeScript `.d.ts` declarations (`TS7016`) | `minor` | `open` |
+| **TKI-004** | `core` | `createAdapterProvider` rejects `catalogDescriptor` defaults and skill snippet `application` shape without `supportedPlatforms`, `platform`, and `surfaces` | `minor` | `open` |
+| **TKI-005** | `core` | `librarian.replaceProfile()` + `getAbilityModel()` returns an empty `supportAreas: []` array when profile fields are nested under `profile.fields` | `minor` | `open` |
+
+---
+
+## 8. Repository Layout
+
+```text
+├── apps/rehearse-journey/         # Rehearse the Journey (Kioo Companion) application
+│   ├── bot/                       # Python Pipecat WebRTC bot, FlowEngine, MultiAgentBus, Maps & Image Gen
+│   ├── client/                    # React 18 + TypeScript + R3F 3D Mascots + Directions + Toolkit integration
+│   └── mobile/                    # React Native companion screen & native toolkit adapter bridge
+├── Project/                       # Hackathon PRD, Sprint Plans, Spike Notes, Approval Cases & Toolkit Issues
+│   ├── PRD.md                     # Product Requirements Document (Problem Statement 6)
+│   ├── Pipecat-Nov7-sprint-plan.md# Sprint execution plan & architecture notes
+│   ├── toolkit-issues.md          # Logged AI for Accessibility Toolkit issues (TKI-001 – TKI-005)
+│   └── approval-cases.md          # 20 deterministic approval & safety test cases (A01–A20)
+├── toolkit/                       # AI for Accessibility Toolkit core (Librarian, Datastore, AbilityModel, Skills, Surfaces, Adapter MCP)
+├── tools/adapters/                # Browser accessibility adapters (ReadAloud, BigTargets, DarkMode, ReadingRuler, BionicReading, etc.)
+├── server/                        # Hosted HTTP & Adapter MCP registry service for the toolkit
+└── docs/                          # Toolkit architecture, glossary, and design documentation
+```
+
+---
+
+## License
+
+Licensed under Apache 2.0 ([LICENSE](LICENSE)). Built upon the [AI for Accessibility Toolkit](docs/HOW-THIS-WAS-BUILT.md).

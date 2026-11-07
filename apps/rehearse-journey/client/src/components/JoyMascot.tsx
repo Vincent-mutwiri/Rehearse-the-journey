@@ -1,5 +1,6 @@
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { Component, lazy, Suspense, type ReactNode } from 'react'
+import JoyPlaceholder from './JoyPlaceholder'
 
 export type JoyState = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'ended'
 export interface JoyMascotProps {
@@ -9,11 +10,10 @@ export interface JoyMascotProps {
   className?: string
 }
 const JoyScene = lazy(() => import('./JoyScene'))
-function Placeholder() { return <span className="joy-placeholder">Joy</span> }
 class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
-  render() { return this.state.failed ? <Placeholder /> : this.props.children }
+  render() { return this.state.failed ? <JoyPlaceholder /> : this.props.children }
 }
 export default function JoyMascot({ state, encourageSignal = 0, reduceMotion = false, className = '' }: JoyMascotProps) {
   const systemReducedMotion = useReducedMotion()
@@ -22,7 +22,7 @@ export default function JoyMascot({ state, encourageSignal = 0, reduceMotion = f
     <div role="img" aria-label={`Joy, your rehearsal companion — ${state}`}
       data-state={state} data-motion={still ? 'still' : 'animated'} className={`joy ${className}`}>
       <SceneBoundary>
-        <Suspense fallback={<Placeholder />}>
+        <Suspense fallback={<JoyPlaceholder />}>
           <JoyScene state={state} encourageSignal={encourageSignal} still={still} />
         </Suspense>
       </SceneBoundary>

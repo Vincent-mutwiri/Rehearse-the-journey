@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import {
-  AnimationClip,
-  AnimationMixer,
   Bone,
   BufferAttribute,
   BufferGeometry,
@@ -10,14 +8,11 @@ import {
   Color,
   Float32BufferAttribute,
   Group,
-  InterpolateSmooth,
   LatheGeometry,
-  LoopRepeat,
   MathUtils,
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
-  NumberKeyframeTrack,
   Object3D,
   Skeleton,
   SkinnedMesh,
@@ -27,6 +22,7 @@ import {
   Vector2,
 } from 'three'
 import type { JoyState } from './JoyMascot'
+import JoyPlaceholder from './JoyPlaceholder'
 
 interface SceneProps { state: JoyState; encourageSignal: number; still: boolean }
 
@@ -350,8 +346,35 @@ class ExpressiveFaceController {
   ): number {
     const damp = MathUtils.damp
     if (still) {
-      nodes.mouth.setSmile(0.62)
-      nodes.mouth.setOpen(0.02)
+      // Stopping motion must not freeze a blink or a talking expression.
+      this.blinkStart = -1
+      this.nextBlinkTime = t + 2.4
+      this.nextSaccadeTime = t + 0.8
+      this.targetGazeX = this.targetGazeY = this.curGazeX = this.curGazeY = 0
+      this.curSquint = 0
+      this.curSmile = state === 'listening' ? 0.78 : 0.62
+      this.curOpen = this.curOoh = 0
+      this.curBrowRaiseL = this.curBrowRaiseR = 0.008
+      this.curBrowTiltL = 0.12
+      this.curBrowTiltR = -0.12
+      placeOnHead(nodes.eyeL, nodes.rest.eyeLX, nodes.rest.eyeY, 0.010)
+      placeOnHead(nodes.eyeR, nodes.rest.eyeRX, nodes.rest.eyeY, 0.010)
+      for (const [eye, highlight, lid] of [
+        [nodes.eyeL, nodes.highlightL, nodes.lidL],
+        [nodes.eyeR, nodes.highlightR, nodes.lidR],
+      ]) {
+        eye.scale.y = 0.093
+        highlight.position.set(eye.position.x - 0.018, eye.position.y + 0.028, eye.position.z + 0.046)
+        highlight.visible = true
+        lid.visible = false
+      }
+      placeOnHead(nodes.browL, -0.15, nodes.rest.browY + 0.008, 0.018)
+      placeOnHead(nodes.browR, 0.15, nodes.rest.browY + 0.008, 0.018)
+      nodes.browL.rotation.z = 0.12
+      nodes.browR.rotation.z = -0.12
+      nodes.blushMats.forEach(material => { material.opacity = 0.36 })
+      nodes.mouth.setSmile(this.curSmile)
+      nodes.mouth.setOpen(0)
       nodes.mouth.setOoh(0)
       return 0
     }
@@ -403,9 +426,9 @@ class ExpressiveFaceController {
     this.curSquint = damp(this.curSquint, targetSquint, 10, dt)
     const lidClosure = Math.min(1, blinkEnv + this.curSquint)
 
-    // FIX 5: Rotate hemisphere lids on X instead of scaling Y
-    // Open = -0.65 (cute crease), closed = +0.15
-    const lidRotX = MathUtils.lerp(-0.65, 0.15, lidClosure)
+    // Retract the lids for an alert, open-eyed resting expression.
+    nodes.lidL.visible = nodes.lidR.visible = lidClosure > 0.04
+    const lidRotX = MathUtils.lerp(-1.35, 0.15, lidClosure)
     nodes.lidL.rotation.x = lidRotX
     nodes.lidR.rotation.x = lidRotX
     // slight outer lift for friendly look
@@ -417,8 +440,10 @@ class ExpressiveFaceController {
     const eyeScaleY = MathUtils.lerp(0.093, 0.012, blinkEnv)
     nodes.eyeL.scale.y = eyeScaleY
     nodes.eyeR.scale.y = eyeScaleY
-    nodes.highlightL.visible = blinkEnv < 0.65
-    nodes.highlightR.visible = blinkEnv < 0.65
+    nodes.highlightL.position.y = nodes.eyeL.position.y + 0.028 * (1 - blinkEnv)
+    nodes.highlightR.position.y = nodes.eyeR.position.y + 0.028 * (1 - blinkEnv)
+    nodes.highlightL.visible = blinkEnv < 0.35
+    nodes.highlightR.visible = blinkEnv < 0.35
 
     let targetBrowRaiseL = 0.008
     let targetBrowRaiseR = 0.008
@@ -472,8 +497,8 @@ class ExpressiveFaceController {
     nodes.mouth.setOoh(this.curOoh)
 
     const targetBlush = state === 'speaking' ? 0.44 + Math.sin(t * 3.0) * 0.08 : state === 'listening' ? 0.48 : 0.36
-    nodes.blushMats.forEach(m => {
-      ;(m as any).opacity = damp((m as any).opacity, targetBlush, 6, dt)
+    nodes.blushMats.forEach(material => {
+      material.opacity = damp(material.opacity, targetBlush, 6, dt)
     })
 
     return blinkEnv
@@ -507,6 +532,9 @@ function buildRig() {
   const geometries: BufferGeometry[] = []
   const materials: (MeshStandardMaterial | MeshPhysicalMaterial)[] = [lavender, peach, ink, sage, white]
 
+  const orbGeometry = new SphereGeometry(1, 28, 22)
+  geometries.push(orbGeometry)
+
   function orb(
     parent: Group | Bone,
     material: MeshStandardMaterial | MeshPhysicalMaterial,
@@ -514,9 +542,7 @@ function buildRig() {
     scale: [number, number, number],
     name?: string,
   ) {
-    const g = new SphereGeometry(1, 28, 22)
-    geometries.push(g)
-    const m = new Mesh(g, material)
+    const m = new Mesh(orbGeometry, material)
     m.position.set(...position)
     m.scale.set(...scale)
     if (name) m.name = name
@@ -648,7 +674,8 @@ function buildRig() {
     materials.push(lidMat)
     const lid = new Mesh(lidGeo, lidMat)
     placeOnHead(lid, x, 0.03, 0.012)
-    lid.rotation.x = -0.65 // open crease
+    lid.rotation.x = -1.35
+    lid.visible = false
     lid.scale.set(0.72, 1.05, 0.65)
     lid.name = `lid.${name}`
     lid.frustumCulled = false
@@ -670,7 +697,7 @@ function buildRig() {
     placeOnHead(brow, x > 0 ? 0.15 : -0.15, 0.135, 0.018)
     brow.rotation.x = Math.PI * 0.12
     brow.rotation.y = x > 0 ? -0.18 : 0.18
-    brow.rotation.z = x > 0 ? 0.52 : -0.42
+    brow.rotation.z = x > 0 ? -0.12 : 0.12
     brow.name = `brow.${name}`
     brow.frustumCulled = false
     head.add(brow)
@@ -685,34 +712,6 @@ function buildRig() {
   mouthRig.mesh.rotation.x = 0.08
   mouthRig.mesh.name = 'mouthMorph'
   head.add(mouthRig.mesh)
-
-  // Breathe clip with phase-delayed shoulder rise
-  const breathTimes = [0, 1.25, 2.5]
-  const breathDelayed = [0.25, 1.5, 2.75]
-
-  const chestZ = [0, 0.028, 0]
-  const neckX = [0, 0.016, 0]
-  const upperL = [0, 0.012, 0]
-  const upperR = [0, 0.012, 0]
-  const scaleX = [1, 1.025, 1]
-  const scaleZ = [1, 1.02, 1]
-
-  const tracks = [
-    new NumberKeyframeTrack('chest.rotation[z]', breathTimes, chestZ),
-    new NumberKeyframeTrack('neck.rotation[x]', breathDelayed, neckX),
-    new NumberKeyframeTrack('upperArm.L.rotation[z]', breathDelayed, upperL),
-    new NumberKeyframeTrack('upperArm.R.rotation[z]', breathDelayed, upperR),
-    new NumberKeyframeTrack('chest.scale[x]', breathTimes, scaleX),
-    new NumberKeyframeTrack('chest.scale[z]', breathTimes, scaleZ),
-  ]
-  tracks.forEach(t => t.setInterpolation(InterpolateSmooth))
-  const breatheClip = new AnimationClip('breathe', 2.75, tracks)
-  breatheClip.optimize()
-
-  const mixer = new AnimationMixer(root)
-  const breatheAction = mixer.clipAction(breatheClip)
-  breatheAction.setLoop(LoopRepeat, Infinity)
-  breatheAction.play()
 
   const faceController = new ExpressiveFaceController()
   const faceNodes: FaceNodes = {
@@ -754,18 +753,12 @@ function buildRig() {
     brows,
     blushMats,
     mouthRig,
-    mixer,
-    breatheAction,
     faceController,
     faceNodes,
     materials,
     geometries,
     skeleton,
     dispose() {
-      try {
-        mixer.stopAllAction()
-        mixer.uncacheRoot(root)
-      } catch {}
       geometries.forEach(g => { try { g.dispose() } catch {} })
       materials.forEach(m => { try { m.dispose() } catch {} })
       try { skeleton.dispose() } catch {}
@@ -788,9 +781,6 @@ function Character({ state, encourageSignal, still }: SceneProps) {
       rootScaleX: 1,
       rootScaleY: 1,
       rootScaleZ: 1,
-      hipsScaleX: 1,
-      hipsScaleY: 1,
-      hipsScaleZ: 1,
       spineX: 0,
       spineZ: 0,
       chestZ: 0,
@@ -828,12 +818,6 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     }
   }, [state, invalidate])
 
-  useEffect(() => {
-    rig.breatheAction.paused = still
-    rig.breatheAction.timeScale = still ? 0 : 1
-    if (!still && !rig.breatheAction.isRunning()) rig.breatheAction.play()
-  }, [still, rig.breatheAction])
-
   useFrame((frameState, delta) => {
     const m = motion.current
     const dt = Math.min(delta, 0.05)
@@ -841,7 +825,8 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     const t = m.time
     const cur = m.cur
 
-    if (!still) rig.mixer.update(dt)
+    // One continuous breathing cycle owns chest motion; feet stay grounded.
+    const breath = still ? 0 : (1 - Math.cos(t * Math.PI * 2 / 4.8)) * 0.5
 
     const nodAge = t - m.nodStart
     const nod = !still && nodAge >= 0 && nodAge < 0.85 ? Math.sin((nodAge / 0.85) * Math.PI) * 0.28 : 0
@@ -849,8 +834,8 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     const squashAge = t - m.squashStart
     const squashActive = !still && squashAge >= 0 && squashAge < 0.22
     const squashT = squashActive ? Math.sin((squashAge / 0.22) * Math.PI) : 0
-    const squashScaleY = 1 - squashT * 0.08
-    const squashScaleXZ = 1 + squashT * 0.04
+    const squashScaleY = 1 - squashT * 0.04
+    const squashScaleXZ = 1 + squashT * 0.02
 
     const isTalking = state === 'speaking'
     const isListening = state === 'listening'
@@ -862,29 +847,26 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     rig.faceController.update(t, dt, mapped, rig.faceNodes, frameState.pointer, still)
 
     const targets = {
-      rootY: still ? 0 : Math.sin(t * 1.1 + m.drift) * 0.018 + Math.sin(t * 2.1) * 0.01,
+      rootY: 0,
       rootRotY: -0.12 + (still ? 0 : Math.sin(t * 0.55 + m.drift) * 0.045 + (isConnecting ? Math.sin(t * 1.6) * 0.08 : 0) + (frameState.pointer?.x ?? 0) * 0.05),
       rootRotX: (isListening ? -0.03 : 0) + (frameState.pointer?.y ?? 0) * (still ? 0 : -0.03),
       rootScaleX: squashScaleXZ,
       rootScaleY: squashScaleY,
       rootScaleZ: squashScaleXZ,
-      hipsScaleX: squashScaleXZ,
-      hipsScaleY: squashScaleY,
-      hipsScaleZ: squashScaleXZ,
       spineX: still ? 0 : (isListening ? -0.04 : 0) + Math.sin(t * 0.7) * 0.015,
       spineZ: still ? 0 : Math.sin(t * 0.6) * 0.018,
       chestZ: still ? 0 : Math.sin(t * 0.85) * 0.018 + (isListening ? 0.018 : 0),
       chestX: isListening ? -0.05 : isTalking ? -0.018 : 0,
-      neckX: nod * 0.35 + (isListening ? -0.06 : isTalking ? Math.sin(t * 4.8) * 0.02 : 0),
+      neckX: nod * 0.35 + (isListening ? -0.06 : isTalking && !still ? Math.sin(t * 4.8) * 0.02 : 0),
       neckZ: isListening ? 0.04 : 0,
       headX: nod * 0.65 + (isTalking && !still ? Math.sin(t * 5) * 0.03 : 0),
       headY: still ? 0 : isConnecting ? Math.sin(t * 1.4) * 0.14 : isTalking ? Math.sin(t * 0.95) * 0.10 : Math.sin(t * 0.38 + m.drift) * 0.12,
       headZ: isListening ? 0.07 : still ? 0 : Math.sin(t * 0.36) * 0.05,
-      // Fix 3 bonus: gentle human resting bend
-      upperLZ: -0.18 + (isTalking && !still ? Math.sin(t * 2.2) * 0.16 : 0),
-      upperRZ: isEnded ? 2.0 : 0.18 + (isTalking && !still ? Math.sin(t * 2.2 + 1) * 0.18 : 0),
-      foreLX: -0.28 + (isListening ? -0.07 : isTalking ? Math.sin(t * 3.1) * 0.22 : 0),
-      foreRX: isEnded ? -0.6 : -0.28 + (isListening ? -0.02 : isTalking ? Math.sin(t * 3.1 + 0.8) * 0.18 : 0),
+      // Small, outward gestures keep hands clear of the belly.
+      upperLZ: -0.18 + (isTalking && !still ? -0.08 - Math.sin(t * 2.2) * 0.07 : 0),
+      upperRZ: isEnded ? 2.0 : 0.18 + (isTalking && !still ? 0.08 + Math.sin(t * 2.2 + 1) * 0.07 : 0),
+      foreLX: -0.28 + (isListening ? -0.07 : isTalking && !still ? Math.sin(t * 3.1) * 0.16 : 0),
+      foreRX: isEnded ? -0.6 : -0.28 + (isListening ? -0.02 : isTalking && !still ? Math.sin(t * 3.1 + 0.8) * 0.16 : 0),
     }
 
     if (still) Object.assign(cur, targets)
@@ -895,9 +877,6 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     cur.rootScaleX = MathUtils.damp(cur.rootScaleX, targets.rootScaleX, 18, dt)
     cur.rootScaleY = MathUtils.damp(cur.rootScaleY, targets.rootScaleY, 18, dt)
     cur.rootScaleZ = MathUtils.damp(cur.rootScaleZ, targets.rootScaleZ, 18, dt)
-    cur.hipsScaleX = MathUtils.damp(cur.hipsScaleX, targets.hipsScaleX, 18, dt)
-    cur.hipsScaleY = MathUtils.damp(cur.hipsScaleY, targets.hipsScaleY, 18, dt)
-    cur.hipsScaleZ = MathUtils.damp(cur.hipsScaleZ, targets.hipsScaleZ, 18, dt)
     cur.spineX = MathUtils.damp(cur.spineX, targets.spineX, 4, dt)
     cur.spineZ = MathUtils.damp(cur.spineZ, targets.spineZ, 4, dt)
     cur.chestZ = MathUtils.damp(cur.chestZ, targets.chestZ, 4, dt)
@@ -917,23 +896,20 @@ function Character({ state, encourageSignal, still }: SceneProps) {
     rig.root.rotation.x = cur.rootRotX
     rig.root.scale.set(cur.rootScaleX, cur.rootScaleY, cur.rootScaleZ)
 
-    rig.hips.scale.set(cur.hipsScaleX, cur.hipsScaleY, cur.hipsScaleZ)
-
-    const mixerChestZ = still ? 0 : rig.chest.rotation.z
-    const mixerNeckX = still ? 0 : rig.neck.rotation.x
+    rig.chest.scale.set(1 + breath * 0.016, 1, 1 + breath * 0.018)
     rig.spine.rotation.x = cur.spineX
     rig.spine.rotation.z = cur.spineZ
-    rig.chest.rotation.z = mixerChestZ + cur.chestZ * 0.6
-    rig.chest.rotation.x = cur.chestX
-    rig.neck.rotation.x = mixerNeckX + cur.neckX
+    rig.chest.rotation.z = cur.chestZ * 0.6
+    rig.chest.rotation.x = cur.chestX + breath * 0.008
+    rig.neck.rotation.x = cur.neckX + breath * 0.008
     rig.neck.rotation.z = cur.neckZ
 
     rig.head.rotation.x = cur.headX
     rig.head.rotation.y = cur.headY
     rig.head.rotation.z = cur.headZ
 
-    rig.upperArmL.rotation.z = cur.upperLZ
-    rig.upperArmR.rotation.z = cur.upperRZ
+    rig.upperArmL.rotation.z = cur.upperLZ - breath * 0.012
+    rig.upperArmR.rotation.z = cur.upperRZ + breath * 0.012
     rig.forearmL.rotation.x = cur.foreLX
     rig.forearmR.rotation.x = cur.foreRX
   })
@@ -948,9 +924,8 @@ export default function JoyScene(props: SceneProps) {
       camera={{ position: [0, 1.16, 4.4], fov: 34 }}
       dpr={[1, 1.5]}
       frameloop={props.still ? 'demand' : 'always'}
-      shadows="percentage"
       gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
-      fallback={<span className="joy-placeholder">Joy</span>}
+      fallback={<JoyPlaceholder />}
       onCreated={({ camera, gl }) => {
         camera.lookAt(0, 1.03, 0)
         gl.setClearColor(0x000000, 0)

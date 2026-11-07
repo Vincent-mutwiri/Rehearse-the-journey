@@ -303,9 +303,11 @@ for (const sid of ['matatu', 'government', 'directions'] as const) {
 }
 
 export interface ProviderStackOption {
-  id: 'gemini_proxy' | 'gemini_live' | 'deepgram_openai_cartesia' | 'openai' | 'text_only'
+  id: 'gemini_proxy' | 'gemini_direct' | 'gemini_live' | 'deepgram_openai_cartesia' | 'openai' | 'text_only'
   label: string
   reason: string
+  usesBrowserStt: boolean
+  previewOnly?: boolean
 }
 
 export const PROVIDER_STACK_OPTIONS: ProviderStackOption[] = [
@@ -313,26 +315,38 @@ export const PROVIDER_STACK_OPTIONS: ProviderStackOption[] = [
     id: 'gemini_proxy',
     label: 'Gemini REST + Gemini TTS (Browser STT)',
     reason: 'audio on, Lovable Gemini proxy active → REST LLM + Gemini TTS + Web Speech STT',
+    usesBrowserStt: true,
+  },
+  {
+    id: 'gemini_direct',
+    label: 'Gemini REST + Gemini TTS (Browser STT, direct)',
+    reason: 'audio on, Gemini REST + TTS direct → Web Speech STT',
+    usesBrowserStt: true,
   },
   {
     id: 'gemini_live',
     label: 'Gemini Live (Speech-to-Speech)',
     reason: 'audio on, Gemini Live eligible → direct bidirectional speech-to-speech',
-  },
-  {
-    id: 'deepgram_openai_cartesia',
-    label: 'Deepgram STT + OpenAI LLM + Cartesia TTS',
-    reason: 'audio on, vendor-neutral low-latency text pipeline',
+    usesBrowserStt: false,
   },
   {
     id: 'openai',
     label: 'OpenAI Stack (Whisper + GPT-4o + TTS-1)',
-    reason: 'audio on, OpenAI fallback stack',
+    reason: 'audio on, OpenAI server STT + GPT-4o + TTS',
+    usesBrowserStt: false,
   },
   {
     id: 'text_only',
-    label: 'Text-only LLM (No voice)',
-    reason: 'audio off or provider voice unavailable → guaranteed typed path',
+    label: 'Text-only Rehearsal Mode (No voice)',
+    reason: 'audio off or voice unavailable → deterministic Flow text rehearsal mode',
+    usesBrowserStt: false,
+  },
+  {
+    id: 'deepgram_openai_cartesia',
+    label: 'Deepgram STT + OpenAI LLM + Cartesia TTS (Preview)',
+    reason: 'preview only — scheduled for v1.1 cloud deployment',
+    usesBrowserStt: false,
+    previewOnly: true,
   },
 ]
 

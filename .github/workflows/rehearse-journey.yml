@@ -1,0 +1,62 @@
+name: rehearse-journey-browser
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/rehearse-journey/**'
+      - 'tools/adapters/**'
+      - '.github/workflows/rehearse-journey.yml'
+  pull_request:
+    paths:
+      - 'apps/rehearse-journey/**'
+      - 'tools/adapters/**'
+      - '.github/workflows/rehearse-journey.yml'
+
+jobs:
+  rehearse-journey-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+          cache-dependency-path: apps/rehearse-journey/client/pnpm-lock.yaml
+
+      - name: Backend syntax & Flow/Approval/Provider unit tests
+        run: |
+          python3 -m py_compile apps/rehearse-journey/bot/*.py
+          python3 apps/rehearse-journey/bot/test_v11_sprints.py
+
+      - name: Install client dependencies & build production bundle
+        run: |
+          pnpm --dir apps/rehearse-journey/client install --frozen-lockfile
+          pnpm --dir apps/rehearse-journey/client build
+
+      - name: Install Python Playwright + Chrome
+        run: |
+          pip install playwright
+          python3 -m playwright install --with-deps chrome
+
+      - name: Run Rehearse the Journey browser regressions
+        working-directory: apps/rehearse-journey/client
+        run: |
+          npx vite --port 3099 &
+          VITE_PID=$!
+          trap "kill $VITE_PID 2>/dev/null || true" EXIT
+          sleep 3
+          python3 test/rehearsal-e2e.py http://127.0.0.1:3099
+          python3 test/rehearsal-integration.py http://127.0.0.1:3099
+          python3 test/s45-accessibility.py http://127.0.0.1:3099
+          python3 test/joy-mascot.py http://127.0.0.1:3099

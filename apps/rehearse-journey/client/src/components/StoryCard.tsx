@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import type { StoryDef } from '../stories'
+import { RealMap } from '../stories'
 
 interface StoryCardProps {
   story: StoryDef
@@ -55,7 +56,14 @@ export default function StoryCard({ story, onClose }: StoryCardProps) {
 
       <div className="story-card-body" aria-live="polite" key={slide.id}>
         {slide.kind === 'custom' && slide.render ? (
-          slide.render()
+          // Map slides: if the story has real route data from the Maps API,
+          // render a RealMap (Leaflet + OSM with the route drawn on it).
+          // Otherwise fall back to the slide's own render (FictionalMap SVG).
+          slide.id === 'map' && story.route ? (
+            <RealMap route={story.route} caption="Real route — candidate path, confirm with your co-designer." />
+          ) : (
+            slide.render()
+          )
         ) : (
           <div className="story-card-text">
             {slide.title && <h3>{slide.title}</h3>}

@@ -30,6 +30,10 @@ class FlowTurnDecision:
     rtvi_events: List[Dict[str, Any]]
 
 
+VALID_SCENARIOS = {"hospital", "matatu", "government", "directions"}
+VALID_MODES = {"learn", "practise", "explore", "live-help"}
+
+
 class FlowEngine:
     """State machine managing structured conversation nodes for a scenario + level."""
 
@@ -37,7 +41,33 @@ class FlowEngine:
         self.flow: ScenarioFlow = get_scenario_flow(scenario_id, level, base_prompt)
         self.current_node_id: str = self.flow.initial_node_id
         self.pending_approval_node_id: Optional[str] = None
+        self.pending_approval_id: Optional[str] = None
+        self._approval_counter: int = 0
         self.history: List[str] = [self.current_node_id]
+
+    @staticmethod
+    def validate_session_config(raw: Any) -> Dict[str, Any]:
+        """Validate incoming session configuration from offer body or RTVI client-message."""
+        data = raw if isinstance(raw, dict) else {}
+        raw_scenario = str(data.get("scenario_id") or "hospital").strip().lower()
+        scenario_id = raw_scenario if raw_scenario in VALID_SCENARIOS else "hospital"
+        try:
+            level = max(1, min(4, int(data.get("level", 1))))
+        except (TypeError, ValueError):
+            level = 1
+        raw_mode = str(data.get("mode") or "practise").strip().lower()
+        mode = raw_mode if raw_mode in VALID_MODES else "practise"
+        raw_audio = data.get("audio_enabled", True)
+        if isinstance(raw_audio, str):
+            audio_enabled = raw_audio.strip().lower() not in ("0", "false", "no", "off")
+        else:
+            audio_enabled = bool(raw_audio)
+        return {
+            "scenario_id": scenario_id,
+            "level": level,
+            "mode": mode,
+            "audio_enabled": audio_enabled,
+        }
 
     @staticmethod
     def _story_events(node: FlowNode) -> List[Dict[str, Any]]:
@@ -64,6 +94,7 @@ class FlowEngine:
         )
         self.current_node_id = self.flow.initial_node_id
         self.pending_approval_node_id = None
+        self.pending_approval_id = None
         self.history = [self.current_node_id]
         return self.current_node
 
@@ -213,23 +244,59 @@ class FlowEngine:
             )
 
         # If advancing from this node requires approval and auto_approve is False,
-        # record proposal and emit approval_proposal event.
+        # record the pending proposal, emit approval_proposal, and STAY on the current
+        # step until the backend receives a matching approval response.
         if node.requires_approval and not auto_approve:
+            self._approval_counter += 1
+            approval_id = f"apr-{self._approval_counter}"
             self.pending_approval_node_id = next_id
+            self.pending_approval_id = approval_id
             next_node_preview = self.flow.nodes[next_id]
             events.append(
                 {
                     "type": "approval_proposal",
+                    "approval_id": approval_id,
                     "action": "go_to_step",
                     "from_node": node.id,
                     "target_node": next_id,
                     "target_title": next_node_preview.step_title,
                 }
             )
+            reassurance = (
+                "The visitor declined or had no pretend card—reassure them warmly that it is completely okay. "
+                if declined
+                else "Acknowledge the visitor's reply warmly. "
+            )
+            return FlowTurnDecision(
+                node_id=node.id,
+                step_title=node.step_title,
+                speaker=node.speaker,
+                used_fallback=False,
+                branched_diversion=False,
+                proposed_approval_step=next_id,
+                handoff_to=None,
+                parallel_fanout=False,
+                instruction_for_llm=(
+                    f"{reassurance}Let them know they can approve advancing to "
+                    f"'{next_node_preview.step_title}' on screen whenever they are ready, "
+                    "or keep practising this step."
+                ),
+                rtvi_events=events,
+            )
 
-        # Advance to the next node
+        # Un-gated node (or auto_approve=True): advance immediately to next_id
+        return self._advance_to_node(next_id, declined=declined, extra_events=events)
+
+    def _advance_to_node(
+        self,
+        next_id: str,
+        declined: bool = False,
+        extra_events: Optional[List[Dict[str, Any]]] = None,
+    ) -> FlowTurnDecision:
+        events: List[Dict[str, Any]] = list(extra_events or [])
         self.current_node_id = next_id
         self.pending_approval_node_id = None
+        self.pending_approval_id = None
         self.history.append(self.current_node_id)
         next_node = self.current_node
 
@@ -265,19 +332,138 @@ class FlowEngine:
             speaker=next_node.speaker,
             used_fallback=False,
             branched_diversion=False,
-            proposed_approval_step=node.approval_target_step if node.requires_approval else None,
+            proposed_approval_step=None,
             handoff_to=next_node.handoff_to,
             parallel_fanout=next_node.parallel_fanout,
             instruction_for_llm=reassurance + next_node.entry_prompt,
             rtvi_events=events,
         )
 
-    def resolve_approval(self, approved: bool, target_node_id: Optional[str] = None) -> FlowNode:
-        """Apply or reject a controller approval decision."""
-        if approved:
-            dest = target_node_id or self.pending_approval_node_id
-            if dest and dest in self.flow.nodes:
-                self.current_node_id = dest
-                self.history.append(dest)
-        self.pending_approval_node_id = None
-        return self.current_node
+    def resolve_approval(
+        self,
+        approved: bool,
+        target_node_id: Optional[str] = None,
+        approval_id: Optional[str] = None,
+    ) -> FlowTurnDecision:
+        """Apply or reject a controller approval decision and return the resulting FlowTurnDecision."""
+        node = self.current_node
+        if not self.pending_approval_node_id:
+            return FlowTurnDecision(
+                node_id=node.id,
+                step_title=node.step_title,
+                speaker=node.speaker,
+                used_fallback=True,
+                branched_diversion=False,
+                proposed_approval_step=None,
+                handoff_to=None,
+                parallel_fanout=False,
+                instruction_for_llm=node.entry_prompt,
+                rtvi_events=[
+                    {
+                        "type": "approval_rejected",
+                        "reason": "No pending approval proposal.",
+                        "node_id": node.id,
+                    }
+                ],
+            )
+
+        if target_node_id and target_node_id != self.pending_approval_node_id:
+            return FlowTurnDecision(
+                node_id=node.id,
+                step_title=node.step_title,
+                speaker=node.speaker,
+                used_fallback=True,
+                branched_diversion=False,
+                proposed_approval_step=self.pending_approval_node_id,
+                handoff_to=None,
+                parallel_fanout=False,
+                instruction_for_llm=node.entry_prompt,
+                rtvi_events=[
+                    {
+                        "type": "approval_rejected",
+                        "reason": f"Target node mismatch: expected {self.pending_approval_node_id}, got {target_node_id}.",
+                        "node_id": node.id,
+                    }
+                ],
+            )
+
+        if approval_id and self.pending_approval_id and approval_id != self.pending_approval_id:
+            return FlowTurnDecision(
+                node_id=node.id,
+                step_title=node.step_title,
+                speaker=node.speaker,
+                used_fallback=True,
+                branched_diversion=False,
+                proposed_approval_step=self.pending_approval_node_id,
+                handoff_to=None,
+                parallel_fanout=False,
+                instruction_for_llm=node.entry_prompt,
+                rtvi_events=[
+                    {
+                        "type": "approval_rejected",
+                        "reason": "Approval ID mismatch.",
+                        "node_id": node.id,
+                    }
+                ],
+            )
+
+        dest = self.pending_approval_node_id
+        resolved_id = self.pending_approval_id
+        if not approved:
+            self.pending_approval_node_id = None
+            self.pending_approval_id = None
+            return FlowTurnDecision(
+                node_id=node.id,
+                step_title=node.step_title,
+                speaker=node.speaker,
+                used_fallback=False,
+                branched_diversion=False,
+                proposed_approval_step=None,
+                handoff_to=None,
+                parallel_fanout=False,
+                instruction_for_llm=(
+                    f"The visitor chose to stay on '{node.step_title}'. "
+                    "Continue practising this step calmly without advancing."
+                ),
+                rtvi_events=[
+                    {
+                        "type": "approval_resolved",
+                        "approval_id": resolved_id,
+                        "approved": False,
+                        "node_id": node.id,
+                        "step_title": node.step_title,
+                        "speaker": node.speaker,
+                    }
+                ],
+            )
+
+        if dest not in self.flow.nodes:
+            self.pending_approval_node_id = None
+            self.pending_approval_id = None
+            return FlowTurnDecision(
+                node_id=node.id,
+                step_title=node.step_title,
+                speaker=node.speaker,
+                used_fallback=True,
+                branched_diversion=False,
+                proposed_approval_step=None,
+                handoff_to=None,
+                parallel_fanout=False,
+                instruction_for_llm=node.entry_prompt,
+                rtvi_events=[{"type": "approval_rejected", "reason": "Unknown target node."}],
+            )
+
+        return self._advance_to_node(
+            dest,
+            declined=False,
+            extra_events=[
+                {
+                    "type": "approval_resolved",
+                    "approval_id": resolved_id,
+                    "approved": True,
+                    "node_id": dest,
+                    "step_title": self.flow.nodes[dest].step_title,
+                    "speaker": self.flow.nodes[dest].speaker,
+                }
+            ],
+        )

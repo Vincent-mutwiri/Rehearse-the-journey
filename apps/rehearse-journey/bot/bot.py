@@ -10,6 +10,7 @@
 import asyncio
 import os
 import sys
+from typing import Optional
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -18,35 +19,40 @@ from dev_tooling import create_dev_telemetry
 from flow_engine import FlowEngine
 from mode_router import EXPLORE_SYSTEM_PROMPT
 from multi_agent import PERSONAS, MultiAgentBus
-from providers import FallbackChainCoordinator, ProviderRegistry
-from scenario import JOY_SYSTEM_PROMPT, get_level, level_prompt
+from providers import FallbackChainCoordinator, ProviderRegistry, ProviderSelection
+from scenario import JOY_SYSTEM_PROMPT
 from vision import VISION_SYSTEM_PROMPT
-from clarification import ClarificationPractice
 
 load_dotenv()
 logger.remove()
 logger.add(sys.stderr, level=os.getenv("LOG_LEVEL", "INFO"))
 
 
-def check_keys():
-    """Backward-compatible key check + SC.1 provider selection."""
-    audio_pref = os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0"
-    selection = ProviderRegistry.from_profile(audio_preference=audio_pref)
+def select_provider_for_session(audio_preference: Optional[bool] = None) -> tuple[str, str, ProviderSelection]:
+    """Select the active provider stack and return (provider_mode, api_key, selection)."""
+    if audio_preference is None:
+        audio_preference = os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0"
+    selection = ProviderRegistry.from_profile(audio_preference=audio_preference)
     logger.info(
         "Provider stack selected: {} ({}) — {}",
         selection.stack_id,
         selection.display_name,
         selection.reason,
     )
-    if selection.stack_id == "gemini_proxy":
-        return "gemini_text", selection.api_key or ""
+    if selection.stack_id in ("gemini_proxy", "gemini_direct"):
+        return "gemini_text", selection.api_key or "", selection
     if selection.stack_id == "gemini_live":
-        return "gemini", selection.api_key or ""
-    if selection.stack_id in ("openai", "deepgram_openai_cartesia"):
-        return "openai", selection.api_key or ""
-    # SC.3: No valid keys -> fall back cleanly to text_only with a readable log instead of crashing
-    logger.warning("No voice provider key found; falling back to text_only mode.")
-    return "text_only", ""
+        return "gemini", selection.api_key or "", selection
+    if selection.stack_id == "openai":
+        return "openai", selection.api_key or "", selection
+    logger.warning("Using text_only mode (no voice provider active or audio disabled).")
+    return "text_only", "", selection
+
+
+def check_keys():
+    """Backward-compatible key check + SC.1 provider selection."""
+    provider, key, _ = select_provider_for_session()
+    return provider, key
 
 
 def _proxy_http_options():
@@ -88,7 +94,15 @@ def build_system_instruction(
 async def bot(runner_args):
     # Importing this module never checks credentials or initializes media.
     from pipecat.audio.vad.silero import SileroVADAnalyzer
-    from pipecat.frames.frames import LLMRunFrame
+    from pipecat.frames.frames import (
+        ErrorFrame,
+        Frame,
+        LLMFullResponseEndFrame,
+        LLMFullResponseStartFrame,
+        LLMMessagesAppendFrame,
+        LLMRunFrame,
+        LLMTextFrame,
+    )
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.worker import PipelineParams, PipelineWorker
     from pipecat.processors.aggregators.llm_context import LLMContext
@@ -96,6 +110,7 @@ async def bot(runner_args):
         LLMContextAggregatorPair,
         LLMUserAggregatorParams,
     )
+    from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
     from pipecat.runner.types import SmallWebRTCRunnerArguments
     from pipecat.transports.base_transport import TransportParams
     from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
@@ -106,13 +121,41 @@ async def bot(runner_args):
 
     from pipecat.processors.frameworks.rtvi import RTVIProcessor
 
-    class StoryRTVIProcessor(RTVIProcessor):
-        """Forwards FlowEngine, MultiAgentBus, and DevTelemetry events to the client as RTVI server messages.
+    class DeterministicTextOnlyLLMProcessor(FrameProcessor):
+        """Functional text-only processor that responds from the active FlowNode without requiring an API key."""
 
-        Typed input and browser-STT speech both arrive as ``send-text`` messages,
-        so hooking here makes story_open / flow_node_transition / speaker_changed /
-        approval_proposal events fire for either input path.
-        """
+        def __init__(self, engine: FlowEngine, bus: MultiAgentBus, **kwargs):
+            super().__init__(**kwargs)
+            self._engine = engine
+            self._bus = bus
+
+        def build_reply(self) -> str:
+            persona = self._bus.active_persona
+            node = self._engine.current_node
+            if self._engine.pending_approval_node_id:
+                target = self._engine.flow.nodes.get(self._engine.pending_approval_node_id)
+                target_title = target.step_title if target else self._engine.pending_approval_node_id
+                return (
+                    f"{persona.display_name}: Thank you for sharing that in this fictional practice. "
+                    f"Whenever you are ready, approve advancing to '{target_title}' on screen, or keep practising here."
+                )
+            return f"{persona.display_name} ({node.step_title}): {node.entry_prompt}"
+
+        async def process_frame(self, frame: Frame, direction: FrameDirection):
+            await super().process_frame(frame, direction)
+            if isinstance(frame, (LLMRunFrame, LLMMessagesAppendFrame)):
+                run_now = isinstance(frame, LLMRunFrame) or bool(getattr(frame, "run_llm", False))
+                await self.push_frame(frame, direction)
+                if run_now:
+                    reply = self.build_reply()
+                    await self.push_frame(LLMFullResponseStartFrame())
+                    await self.push_frame(LLMTextFrame(text=reply))
+                    await self.push_frame(LLMFullResponseEndFrame())
+                return
+            await self.push_frame(frame, direction)
+
+    class StoryRTVIProcessor(RTVIProcessor):
+        """Forwards FlowEngine, MultiAgentBus, SessionConfig, Approval, and Fallback events over RTVI."""
 
         def __init__(
             self,
@@ -123,6 +166,7 @@ async def bot(runner_args):
             context=None,
             image_http_options=None,
             image_api_key=None,
+            image_timeout_sec: float = 8.0,
             **kwargs,
         ):
             super().__init__(**kwargs)
@@ -131,31 +175,148 @@ async def bot(runner_args):
             self._telemetry = telemetry
             self._fallback = fallback_coordinator
             self._context = context
-            # Image generation (SC.1/SD.2 companion): the proxy HttpOptions +
-            # key, used to generate the scene illustration for story_open.
             self._image_http_options = image_http_options
             self._image_api_key = image_api_key
+            self._image_timeout_sec = image_timeout_sec
+            self._session_active = True
+            self._bg_image_tasks: set[asyncio.Task] = set()
+
+        def close_session(self):
+            """Mark session ended and cancel any in-flight asynchronous image generation tasks."""
+            self._session_active = False
+            for task in list(self._bg_image_tasks):
+                task.cancel()
+            self._bg_image_tasks.clear()
+
+        async def _generate_and_send_story_image(self, story_id: str, node_id: Optional[str] = None):
+            """Generate a story illustration off the critical conversation path with a timeout."""
+            try:
+                from image_gen import generate_story_image
+
+                image_url = await asyncio.wait_for(
+                    generate_story_image(
+                        story_id,
+                        api_key=self._image_api_key,
+                        http_options=self._image_http_options,
+                    ),
+                    timeout=self._image_timeout_sec,
+                )
+                if not self._session_active or not image_url:
+                    return
+                await self.send_server_message(
+                    {
+                        "type": "story_image",
+                        "story_id": story_id,
+                        "node_id": node_id,
+                        "image": image_url,
+                    }
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Story image generation timed out for {story_id}")
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.warning(f"Story image generation failed for {story_id}: {exc}")
 
         async def _send_flow_events(self, decision):
             for event in decision.rtvi_events:
-                # Attach a generated scene illustration to story_open payloads.
-                # The client falls back to the SVG placeholder if this is None
-                # or generation fails, so this never blocks the demo.
-                if event.get("type") == "story_open" and event.get("story_id"):
+                out_event = dict(event)
+                if out_event.get("type") == "story_open" and out_event.get("story_id"):
+                    story_id = out_event["story_id"]
+                    # Attach the Maps route data (if maps_api key is set).
+                    # The client renders it on a real Leaflet map in the
+                    # StoryCard's render() slot; falls back to the FictionalMap
+                    # SVG when route data is absent.
                     try:
-                        from image_gen import generate_story_image
-                        image_url = await generate_story_image(
-                            event["story_id"],
-                            api_key=self._image_api_key,
-                            http_options=self._image_http_options,
-                        )
-                        if image_url:
-                            event["image"] = image_url
+                        from maps import get_story_route
+                        route = get_story_route(story_id)
+                        if route:
+                            out_event["route"] = route
                     except Exception as exc:
-                        logger.warning(
-                            f"Story image generation failed for {event['story_id']}: {exc}"
-                        )
-                await self.send_server_message(event)
+                        logger.warning(f"Could not fetch route for {story_id}: {exc}")
+                    # Attach the generated scene illustration (if available).
+                    try:
+                        from image_gen import _cache as image_cache
+
+                        if story_id in image_cache:
+                            out_event["image"] = image_cache[story_id]
+                        elif self._session_active and self._image_api_key:
+                            task = asyncio.create_task(
+                                self._generate_and_send_story_image(
+                                    story_id, out_event.get("node_id")
+                                )
+                            )
+                            self._bg_image_tasks.add(task)
+                            task.add_done_callback(self._bg_image_tasks.discard)
+                    except Exception as exc:
+                        logger.warning(f"Could not schedule story image for {story_id}: {exc}")
+                await self.send_server_message(out_event)
+
+        async def process_frame(self, frame: Frame, direction: FrameDirection):
+            if isinstance(frame, ErrorFrame) and self._session_active:
+                err_text = str(getattr(frame, "error", "provider error"))
+                next_sel, notice = self._fallback.handle_provider_error(err_text)
+                self._telemetry.active_stack = next_sel.stack_id
+                await self.send_server_message(notice)
+            await super().process_frame(frame, direction)
+
+        async def _handle_client_message(self, msg_id: str, data):
+            msg_type = getattr(data, "t", "")
+            payload = getattr(data, "d", None) or {}
+            if not isinstance(payload, dict):
+                payload = {}
+
+            if msg_type == "session_config":
+                validated = FlowEngine.validate_session_config(payload)
+                node = self._engine.reset(validated["scenario_id"], validated["level"])
+                self._bus.active_speaker_id = self._engine.flow.primary_persona
+                self._bus.parallel_overlap_active = False
+                self._telemetry.scenario_id = validated["scenario_id"]
+                self._telemetry.level = validated["level"]
+                self._telemetry.mode = validated["mode"]
+                self._telemetry.current_node = node.id
+                self._telemetry.active_speaker = self._bus.active_speaker_id
+                if not validated["audio_enabled"]:
+                    self._fallback = FallbackChainCoordinator(audio_preference=False)
+                    self._telemetry.active_stack = "text_only"
+                await self.send_server_message(
+                    {
+                        "type": "session_configured",
+                        "scenario_id": validated["scenario_id"],
+                        "level": validated["level"],
+                        "mode": validated["mode"],
+                        "audio_enabled": validated["audio_enabled"],
+                        "node_id": node.id,
+                        "step_title": node.step_title,
+                        "speaker": node.speaker,
+                        "stack_id": self._fallback.current.stack_id,
+                        "uses_browser_stt": self._fallback.current.uses_browser_stt,
+                    }
+                )
+                opening = self._engine.opening_instruction()
+                await self._send_flow_events(opening)
+            elif msg_type == "approval_response":
+                approved = bool(payload.get("approved", False))
+                target_node = payload.get("target_node")
+                approval_id = payload.get("approval_id")
+                decision = self._engine.resolve_approval(
+                    approved=approved,
+                    target_node_id=str(target_node) if target_node else None,
+                    approval_id=str(approval_id) if approval_id else None,
+                )
+                self._telemetry.current_node = decision.node_id
+                if decision.handoff_to:
+                    handoff_evt = self._bus.handoff(
+                        decision.handoff_to, parallel=decision.parallel_fanout
+                    )
+                    self._telemetry.active_speaker = self._bus.active_speaker_id
+                    await self.send_server_message(handoff_evt)
+                if decision.parallel_fanout:
+                    fanout_evt = self._bus.build_parallel_fanout_turn()
+                    await self.send_server_message(fanout_evt)
+                await self._send_flow_events(decision)
+
+            await super()._handle_client_message(msg_id, data)
 
         async def _handle_send_text(self, data, message_id, user_id=None):
             text = (getattr(data, "content", "") or "").strip()
@@ -197,17 +358,29 @@ async def bot(runner_args):
 
             await super()._handle_send_text(data, message_id, user_id)
 
-    scenario_id = os.getenv("REHEARSAL_SCENARIO", "hospital")
-    level = int(os.getenv("REHEARSAL_LEVEL", "1"))
-    mode = os.getenv("REHEARSAL_MODE", "practise")
+    raw_body = getattr(runner_args, "body", None) or {}
+    if not isinstance(raw_body, dict):
+        raw_body = {}
+    initial_config = FlowEngine.validate_session_config(
+        {
+            "scenario_id": raw_body.get("scenario_id") or os.getenv("REHEARSAL_SCENARIO", "hospital"),
+            "level": raw_body.get("level") or os.getenv("REHEARSAL_LEVEL", "1"),
+            "mode": raw_body.get("mode") or os.getenv("REHEARSAL_MODE", "practise"),
+            "audio_enabled": raw_body.get(
+                "audio_enabled",
+                os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0",
+            ),
+        }
+    )
+    scenario_id = initial_config["scenario_id"]
+    level = initial_config["level"]
+    mode = initial_config["mode"]
+    audio_enabled = initial_config["audio_enabled"]
     camera_enabled = os.getenv("ENABLE_CAMERA_STREAM", "0").strip() == "1"
 
     flow_engine = FlowEngine(scenario_id=scenario_id, level=level, base_prompt=JOY_SYSTEM_PROMPT)
-    clarification = ClarificationPractice()
     bus = MultiAgentBus(active_speaker_id=flow_engine.flow.primary_persona)
-    fallback_coordinator = FallbackChainCoordinator(
-        audio_preference=os.getenv("ABILITY_AUDIO_ENABLED", "1").strip() != "0"
-    )
+    fallback_coordinator = FallbackChainCoordinator(audio_preference=audio_enabled)
     telemetry = create_dev_telemetry()
     telemetry.scenario_id = scenario_id
     telemetry.level = level
@@ -216,7 +389,7 @@ async def bot(runner_args):
     telemetry.active_speaker = bus.active_speaker_id
     telemetry.current_node = flow_engine.current_node_id
 
-    provider, key = check_keys()
+    provider, key, selection = select_provider_for_session(audio_preference=audio_enabled)
     system_prompt = build_system_instruction(mode, flow_engine, bus)
 
     transport = SmallWebRTCTransport(
@@ -243,30 +416,31 @@ async def bot(runner_args):
         )
         before_user, after_user = [], [llm]
 
-    elif provider in ("gemini_text", "text_only"):
+    elif provider == "gemini_text":
         from pipecat.services.google.llm import GoogleLLMService
         from pipecat.services.google.tts import GeminiTTSService
 
         http_options = _proxy_http_options()
         llm = GoogleLLMService(
-            api_key=key or "text-only-placeholder",
+            api_key=key,
             model=os.getenv("GEMINI_TEXT_MODEL", "gemini-3.8-flash"),
             system_instruction=system_prompt,
             http_options=http_options,
         )
-        if provider == "text_only":
-            before_user, after_user = [], [llm]
-        else:
-            tts = GeminiTTSService(
-                api_key=key,
-                model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"),
-                voice=os.getenv("GEMINI_TTS_VOICE", bus.active_persona.voice_gemini),
-                http_options=http_options,
-                use_genai=True,
-            )
-            before_user, after_user = [], [llm, tts]
+        tts = GeminiTTSService(
+            api_key=key,
+            model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"),
+            voice=os.getenv("GEMINI_TTS_VOICE", bus.active_persona.voice_gemini),
+            http_options=http_options,
+            use_genai=True,
+        )
+        before_user, after_user = [], [llm, tts]
 
-    else:  # openai or deepgram_openai_cartesia
+    elif provider == "text_only":
+        llm = DeterministicTextOnlyLLMProcessor(flow_engine, bus)
+        before_user, after_user = [], [llm]
+
+    else:  # openai
         from pipecat.services.openai.llm import OpenAILLMService
         from pipecat.services.openai.stt import OpenAISTTService
         from pipecat.services.openai.tts import OpenAITTSService
@@ -290,7 +464,18 @@ async def bot(runner_args):
     context = LLMContext()
     user, assistant = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer() if provider != "text_only" else None
+        ),
+    )
+    rtvi_proc = StoryRTVIProcessor(
+        flow_engine,
+        bus=bus,
+        telemetry=telemetry,
+        fallback_coordinator=fallback_coordinator,
+        context=context,
+        image_http_options=_proxy_http_options(),
+        image_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
     )
     worker = PipelineWorker(
         Pipeline([
@@ -299,66 +484,41 @@ async def bot(runner_args):
         ]),
         params=PipelineParams(enable_metrics=False, enable_usage_metrics=False),
         enable_rtvi=True,
-        rtvi_processor=StoryRTVIProcessor(
-            flow_engine,
-            bus=bus,
-            telemetry=telemetry,
-            fallback_coordinator=fallback_coordinator,
-            context=context,
-            image_http_options=_proxy_http_options(),
-            image_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
-        ),
+        rtvi_processor=rtvi_proc,
     )
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
     greeted = False
-    selected_level = None
-    level_timeout_task = None
 
-    async def start_selected_level(level_id, client_message=None, clarification_settings=None):
-        """Validate the client choice, configure the prompt, then greet once."""
-        nonlocal greeted, selected_level
-        try:
-            selected_level = get_level(level_id)
-        except ValueError as error:
-            if client_message is not None:
-                await worker.rtvi.send_error_response(client_message, str(error))
-            logger.warning(str(error))
-            return
-
-        # One model is intentionally used for all levels. The explicit prompt
-        # and speaker limit provide controlled multi-character simulation.
-        clarification.configure(clarification_settings or {})
-        llm.append_system_instruction(level_prompt(selected_level))
-        llm.append_system_instruction(clarification.prompt_instruction())
-        logger.info(
-            "Hospital level {} selected: {} (people={}, max_active_speakers={})",
-            selected_level.id,
-            selected_level.name,
-            selected_level.people,
-            selected_level.max_active_speakers,
-        )
-        if client_message is not None:
-            await worker.rtvi.send_server_response(client_message, {
-                "level_id": selected_level.id,
-                "name": selected_level.name,
-                "characters": list(selected_level.characters),
-                "max_active_speakers": selected_level.max_active_speakers,
-                "clarificationPractice": clarification.snapshot(),
-            })
+    @worker.rtvi.event_handler("on_client_ready")
+    async def on_client_ready(rtvi):
+        nonlocal greeted
         if greeted:
             return
         greeted = True
+        opening = flow_engine.opening_instruction()
         await rtvi.send_server_message({
             "type": "provider_selected",
-            "stack_id": fallback_coordinator.current.stack_id,
-            "display_name": fallback_coordinator.current.display_name,
-            "reason": fallback_coordinator.current.reason,
+            "stack_id": selection.stack_id,
+            "display_name": selection.display_name,
+            "reason": selection.reason,
+            "audio_enabled": selection.audio_enabled,
+            "uses_browser_stt": selection.uses_browser_stt,
         })
-        opening = flow_engine.opening_instruction()
+        await rtvi.send_server_message({
+            "type": "session_configured",
+            "scenario_id": flow_engine.flow.scenario_id,
+            "level": flow_engine.flow.level,
+            "mode": telemetry.mode,
+            "audio_enabled": selection.audio_enabled,
+            "node_id": opening.node_id,
+            "step_title": opening.step_title,
+            "speaker": opening.speaker,
+            "stack_id": selection.stack_id,
+            "uses_browser_stt": selection.uses_browser_stt,
+        })
         telemetry.trace_frame("out", "FlowOpening", opening.step_title)
-        for event in opening.rtvi_events:
-            await rtvi.send_server_message(event)
+        await rtvi_proc._send_flow_events(opening)
         context.add_message({
             "role": "user",
             "content": (
@@ -368,51 +528,9 @@ async def bot(runner_args):
         })
         await worker.queue_frames([LLMRunFrame()])
 
-    @worker.rtvi.event_handler("on_client_ready")
-    async def on_client_ready(rtvi):
-        # The client sends set-level immediately after connect. Do not greet
-        # before that message, otherwise the selected level would be ignored.
-        nonlocal level_timeout_task
-        if level_timeout_task is None:
-            async def default_level_after_timeout():
-                await asyncio.sleep(2.0)
-                if not greeted:
-                    await start_selected_level("1")
-            level_timeout_task = asyncio.create_task(default_level_after_timeout())
-
-    @worker.rtvi.event_handler("on_client_message")
-    async def on_client_message(message):
-        if message.type == "set-level":
-            data = message.data if isinstance(message.data, dict) else {}
-            await start_selected_level(
-                data.get("level_id"),
-                message,
-                data.get("clarificationPractice"),
-            )
-        elif message.type == "send-text" and clarification.enabled:
-            data = message.data if isinstance(message.data, dict) else {}
-            content = data.get("content", "")
-            if isinstance(content, str):
-                clarification_result = clarification.handle_user_message(content)
-                if clarification_result.get("is_clarification"):
-                    llm.append_system_instruction(
-                        "The user is asking for clarification. Answer with this exact "
-                        f"specific meaning, without introducing a new ambiguity: "
-                        f"{clarification_result['specific_instruction']}"
-                    )
-                else:
-                    scheduled = clarification.next_instruction()
-                    if scheduled and "vague_instruction" in scheduled:
-                        clarification.record_delivered()
-                        llm.append_system_instruction(
-                            "For the next ordinary, non-safety direction, use this "
-                            f"mildly vague wording: {scheduled['vague_instruction']}. "
-                            f"Its exact meaning is: {scheduled['specific_instruction']}. "
-                            "If the user asks what you mean, give the exact meaning."
-                        )
-
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        rtvi_proc.close_session()
         telemetry.trace_frame("in", "ClientDisconnected", "Session closed")
         await runner.cancel()
 

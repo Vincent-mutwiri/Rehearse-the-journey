@@ -68,3 +68,27 @@ jobs:
           cd toolkit
           npm pack --dry-run
           npx --yes publint
+
+  rehearse-journey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+          cache-dependency-path: apps/rehearse-journey/client/pnpm-lock.yaml
+      - name: Rehearse the Journey — Backend syntax & Flow/Approval/Provider tests
+        run: |
+          python3 -m py_compile apps/rehearse-journey/bot/*.py
+          python3 apps/rehearse-journey/bot/test_v11_sprints.py
+      - name: Rehearse the Journey — Install & Production Build
+        run: |
+          pnpm --dir apps/rehearse-journey/client install --frozen-lockfile
+          pnpm --dir apps/rehearse-journey/client build

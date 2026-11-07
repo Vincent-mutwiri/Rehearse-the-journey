@@ -22,11 +22,12 @@ class ProviderSelection:
     uses_browser_stt: bool
     api_key: Optional[str] = None
     proxy_base_url: Optional[str] = None
+    preview_only: bool = False
 
 
 FALLBACK_ORDER: List[str] = [
     "gemini_live",
-    "deepgram_openai_cartesia",
+    "gemini_direct",
     "gemini_proxy",
     "openai",
     "text_only",
@@ -43,17 +44,15 @@ class ProviderRegistry:
         google_key = (e.get("GOOGLE_API_KEY") or e.get("GEMINI_API_KEY") or "").strip()
         proxy_url = (e.get("GEMINI_PROXY_BASE_URL") or "").strip()
         openai_key = (e.get("OPENAI_API_KEY") or "").strip()
-        deepgram_key = (e.get("DEEPGRAM_API_KEY") or "").strip()
-        cartesia_key = (e.get("CARTESIA_API_KEY") or "").strip()
 
         if google_key and not proxy_url and e.get("USE_GEMINI_LIVE", "1").strip() == "1":
             stacks.append("gemini_live")
-        if deepgram_key and openai_key and cartesia_key:
-            stacks.append("deepgram_openai_cartesia")
         if google_key and proxy_url:
             stacks.append("gemini_proxy")
         elif google_key and "gemini_live" not in stacks:
-            stacks.append("gemini_live")
+            # Direct REST path (no proxy, no Live WebSocket): Gemini text LLM
+            # + Gemini TTS directly against Google's endpoint, browser STT.
+            stacks.append("gemini_direct")
         if openai_key:
             stacks.append("openai")
         stacks.append("text_only")
@@ -69,12 +68,12 @@ class ProviderRegistry:
         if not audio_preference:
             return ProviderSelection(
                 stack_id="text_only",
-                display_name="Text-only LLM (audio off by preference)",
-                reason="audio: off in AbilityModel profile → typed path only",
+                display_name="Text-only Mode (audio off by preference)",
+                reason="audio: off in AbilityModel profile → typed path only, audio suppressed",
                 audio_enabled=False,
                 uses_browser_stt=False,
-                api_key=(e.get("GOOGLE_API_KEY") or e.get("GEMINI_API_KEY") or e.get("OPENAI_API_KEY")),
-                proxy_base_url=e.get("GEMINI_PROXY_BASE_URL"),
+                api_key=None,
+                proxy_base_url=None,
             )
 
         stacks = cls.available_stacks(e)
@@ -96,14 +95,24 @@ class ProviderRegistry:
                 uses_browser_stt=False,
                 api_key=google_key,
             )
+        if stack_id == "gemini_direct":
+            return ProviderSelection(
+                stack_id="gemini_direct",
+                display_name="Gemini REST + Gemini TTS (Browser STT, direct)",
+                reason="audio on, Gemini key available (no Live, no proxy) → REST LLM + Gemini TTS + browser STT",
+                audio_enabled=True,
+                uses_browser_stt=True,
+                api_key=google_key,
+            )
         if stack_id == "deepgram_openai_cartesia":
             return ProviderSelection(
                 stack_id="deepgram_openai_cartesia",
-                display_name="Deepgram STT + OpenAI LLM + Cartesia TTS",
-                reason="audio on, vendor-neutral low-latency pipeline available",
+                display_name="Deepgram STT + OpenAI LLM + Cartesia TTS (Preview)",
+                reason="preview stack — Deepgram/Cartesia adapters scheduled for v1.1 cloud deployment",
                 audio_enabled=True,
                 uses_browser_stt=False,
                 api_key=openai_key,
+                preview_only=True,
             )
         if stack_id == "gemini_proxy":
             return ProviderSelection(
@@ -119,17 +128,18 @@ class ProviderRegistry:
             return ProviderSelection(
                 stack_id="openai",
                 display_name="OpenAI Stack (Whisper STT + GPT-4o + TTS-1)",
-                reason="audio on, OpenAI key available → Whisper + GPT-4o + TTS",
+                reason="audio on, OpenAI key available → Server STT + GPT-4o + TTS",
                 audio_enabled=True,
                 uses_browser_stt=False,
                 api_key=openai_key,
             )
         return ProviderSelection(
             stack_id="text_only",
-            display_name="Text-only Fallback Mode",
-            reason="no valid voice provider keys → safe text-only rehearsal mode",
+            display_name="Text-only Rehearsal Mode",
+            reason="no voice provider active → deterministic Flow text rehearsal mode",
             audio_enabled=False,
             uses_browser_stt=False,
+            api_key=None,
         )
 
 

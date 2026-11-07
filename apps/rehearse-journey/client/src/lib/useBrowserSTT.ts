@@ -28,6 +28,7 @@ type SpeechRecognitionLike = {
 export interface UseBrowserSTTOptions {
   lang?: string
   onFinal: (transcript: string) => void
+  onError?: (errorCode: string) => void
 }
 
 export interface UseBrowserSTTReturn {
@@ -38,7 +39,7 @@ export interface UseBrowserSTTReturn {
   stop: () => void
 }
 
-export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions): UseBrowserSTTReturn {
+export function useBrowserSTT({ lang = 'en-US', onFinal, onError }: UseBrowserSTTOptions): UseBrowserSTTReturn {
   const [supported] = useState(() => {
     if (typeof window === 'undefined') return false
     const w = window as unknown as {
@@ -53,9 +54,19 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const onFinalRef = useRef(onFinal)
   onFinalRef.current = onFinal // always call the latest callback
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
   // Synchronous flag — the onend handler reads this, not the async state,
   // so stop() can suppress the auto-restart before the state propagates.
   const shouldListenRef = useRef(false)
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current !== null) {
+      clearTimeout(restartTimerRef.current)
+      restartTimerRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (!supported) return
@@ -86,10 +97,21 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
       setInterim(interimText)
     }
     rec.onerror = (event) => {
-      // "no-speech" and "aborted" are normal; anything else stops listening.
+      // "no-speech", "aborted", and headless Chromium's "network" are non-permission events.
+      // Permission/device errors ("not-allowed", "service-not-allowed", "audio-capture")
+      // stop listening and synchronize the displayed mic state with the caller.
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
         shouldListenRef.current = false
+        clearRestartTimer()
         setListening(false)
+        setInterim('')
+        if (
+          event.error === 'not-allowed' ||
+          event.error === 'service-not-allowed' ||
+          event.error === 'audio-capture'
+        ) {
+          onErrorRef.current?.(event.error)
+        }
       }
     }
     // SpeechRecognition stops after each final result even with continuous:true.
@@ -97,8 +119,10 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
     // source of truth, so stop() can suppress the restart before the React
     // state update propagates.
     rec.onend = () => {
+      clearRestartTimer()
       if (shouldListenRef.current) {
-        setTimeout(() => {
+        restartTimerRef.current = setTimeout(() => {
+          restartTimerRef.current = null
           if (shouldListenRef.current && recognitionRef.current) {
             try { recognitionRef.current.start() } catch { /* still releasing; onend will fire again */ }
           }
@@ -110,30 +134,33 @@ export function useBrowserSTT({ lang = 'en-US', onFinal }: UseBrowserSTTOptions)
     recognitionRef.current = rec
     return () => {
       shouldListenRef.current = false
+      clearRestartTimer()
       try { rec.abort() } catch { /* already dead */ }
       recognitionRef.current = null
     }
-  }, [supported, lang])
+  }, [supported, lang, clearRestartTimer])
 
   const start = useCallback(() => {
     if (!recognitionRef.current) return
+    clearRestartTimer()
     shouldListenRef.current = true
     try {
       recognitionRef.current.start()
       setListening(true)
       setInterim('')
     } catch { /* already started */ }
-  }, [])
+  }, [clearRestartTimer])
 
   const stop = useCallback(() => {
     shouldListenRef.current = false
+    clearRestartTimer()
     if (!recognitionRef.current) return
     try {
       recognitionRef.current.stop()
     } catch { /* already stopped */ }
     setListening(false)
     setInterim('')
-  }, [])
+  }, [clearRestartTimer])
 
   return { supported, listening, interim, start, stop }
 }

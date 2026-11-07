@@ -22,7 +22,12 @@ import base64
 import os
 from typing import Dict, Optional
 
-from loguru import logger
+try:
+    from loguru import logger
+except ImportError:  # pragma: no cover - fallback outside bot/.venv
+    import logging
+
+    logger = logging.getLogger("rehearse_journey.image_gen")
 
 # ── Prompt palette ──────────────────────────────────────────────────────────
 # One tone across all story illustrations so they read as one set. The

@@ -10,6 +10,25 @@
  */
 
 import type { ReactNode } from 'react'
+import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+// ── Route data from the bot (Maps Routes API v2) ────────────────────────────
+export interface RouteStep {
+  instruction: string
+  maneuver?: string
+  start?: { latitude?: number; longitude?: number }
+  end?: { latitude?: number; longitude?: number }
+}
+
+export interface RouteData {
+  distance_meters: number
+  duration: string
+  steps: RouteStep[]
+  polyline: { lat: number; lng: number }[]
+  label: string
+}
 
 export interface StorySlide {
   id: string
@@ -32,6 +51,14 @@ export interface StoryDef {
    * back to the slides' own content (the FictionalMap SVG, etc.).
    */
   image?: string
+  /**
+   * Optional route data from the Maps Routes API (v2), computed by the bot
+   * with the maps_api key. When present, the StoryCard's map slide
+   * renders a real Leaflet map with the route drawn on it, labelled
+   * "candidate path — confirm with your co-designer." When absent, the
+   * slide falls back to the FictionalMap SVG.
+   */
+  route?: RouteData
 }
 
 /* ── Fictional map slide ────────────────────────────────────────────────────
@@ -122,6 +149,66 @@ function FictionalMap({
         )}
       </svg>
       <figcaption>{caption}</figcaption>
+    </figure>
+  )
+}
+
+/* ── Real map slide (Leaflet + OSM, route from Maps Routes API) ────────────────
+ * A real interactive map with the route drawn on it. Uses free OSM tiles
+ * (no API key for the map itself); the route comes from the bot's Maps
+ * Routes API call. Labelled "candidate path — confirm with your co-designer"
+ * per the PRD (§2.2 US-4). */
+
+// Fix the default Leaflet marker icon (it breaks with bundlers).
+const defaultIcon = L.icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  shadowSize: [41, 41],
+  shadowAnchor: [12, 41],
+  popupAnchor: [1, -34],
+})
+L.Marker.prototype.options.icon = defaultIcon
+
+export function RealMap({ route, caption }: { route: RouteData; caption: string }) {
+  if (!route.polyline || route.polyline.length < 2) {
+    return <p className="story-map-fallback">{caption}</p>
+  }
+  const pts = route.polyline.map(p => [p.lat, p.lng] as [number, number])
+  const start = pts[0]
+  const end = pts[pts.length - 1]
+  const bounds = L.latLngBounds(pts)
+  const km = (route.distance_meters / 1000).toFixed(1)
+
+  return (
+    <figure className="story-map story-map-real">
+      <MapContainer
+        center={bounds.getCenter()}
+        zoom={14}
+        scrollWheelZoom={false}
+        style={{ height: 220, width: '100%', borderRadius: 12 }}
+        bounds={bounds}
+        boundsOptions={{ padding: [20, 20] }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; OpenStreetMap contributors'
+        />
+        <Polyline positions={pts} pathOptions={{ color: '#a89bd4', weight: 4, opacity: 0.8 }} />
+        <Marker position={start}>
+          <Popup>Start</Popup>
+        </Marker>
+        <Marker position={end}>
+          <Popup>Destination</Popup>
+        </Marker>
+      </MapContainer>
+      <figcaption>
+        {caption} — {km} km, {route.steps.length} steps.
+        <br />
+        <strong>Candidate path — confirm with your co-designer.</strong>
+      </figcaption>
     </figure>
   )
 }
